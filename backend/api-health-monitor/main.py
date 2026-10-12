@@ -1,4 +1,13 @@
-import requests
-url="https://httpbin.org/get"
-response = requests.get(url,timeout=5)
-print(response.status_code)
+from fastapi import FastAPI
+
+
+app = FastAPI(title="api-health-monitor")
+@app.get("/")
+def root():
+    return{
+        "application":"API HEALTH MONITOR",
+        "version":"0.1.0"
+    }
+@app.get("/health")
+def health_check():
+    return {"status": "working", "version": 1}
