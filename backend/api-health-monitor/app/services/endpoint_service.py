@@ -1,60 +1,84 @@
-from datetime import datetime, timezone
-from typing import List, Optional
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from app.api.schemas import EndpointCreate, EndpointUpdate
+from app.db.models import Endpoint
 
 
-# Day 1 in-memory mock store before PostgreSQL integration in Day 2
-_mock_endpoints_db: dict[int, dict] = {}
-_id_counter = 1
+class EndpointAlreadyExists(Exception):
+    """Raised when an endpoint URL is already registered."""
 
 
-def register_endpoint(data: EndpointCreate) -> dict:
-    global _id_counter
-    endpoint_record = {
-        "id": _id_counter,
-        "name": data.name,
-        "url": str(data.url),
-        "interval_seconds": data.interval_seconds,
-        "timeout_seconds": data.timeout_seconds,
-        "expected_status_code": data.expected_status_code,
-        "is_active": data.is_active,
-        "created_at": datetime.now(timezone.utc),
-    }
-    _mock_endpoints_db[_id_counter] = endpoint_record
-    _id_counter += 1
-    return endpoint_record
+def register_endpoint(db: Session, data: EndpointCreate) -> Endpoint:
+    endpoint = Endpoint(
+        name=data.name,
+        url=str(data.url),
+        interval_seconds=data.interval_seconds,
+        timeout_seconds=data.timeout_seconds,
+        expected_status_code=data.expected_status_code,
+        is_active=data.is_active,
+    )
 
+    db.add(endpoint)
 
-def list_endpoints() -> List[dict]:
-    return list(_mock_endpoints_db.values())
+    try:
+        db.commit()
+        db.refresh(endpoint)
+    except IntegrityError as exc:
+        db.rollback()
+        raise EndpointAlreadyExists(
+            "An endpoint with this URL already exists."
+        ) from exc
 
-
-def get_endpoint_by_id(endpoint_id: int) -> Optional[dict]:
-    return _mock_endpoints_db.get(endpoint_id)
-
-
-def update_endpoint(endpoint_id: int, data: EndpointUpdate) -> Optional[dict]:
-    endpoint = _mock_endpoints_db.get(endpoint_id)
-    if not endpoint:
-        return None
-
-    update_dict = data.model_dump(exclude_unset=True)
-    if "url" in update_dict and update_dict["url"] is not None:
-        update_dict["url"] = str(update_dict["url"])
-
-    endpoint.update(update_dict)
     return endpoint
 
 
-def delete_endpoint(endpoint_id: int) -> bool:
-    if endpoint_id in _mock_endpoints_db:
-        del _mock_endpoints_db[endpoint_id]
-        return True
-    return False
+def list_endpoints(db: Session) -> list[Endpoint]:
+    statement = select(Endpoint).order_by(Endpoint.id)
+    return list(db.scalars(statement).all())
 
 
-def reset_mock_db():
-    """Helper for testing isolated states"""
-    global _id_counter
-    _mock_endpoints_db.clear()
-    _id_counter = 1
+def get_endpoint_by_id(
+    db: Session, endpoint_id: int
+) -> Endpoint | None:
+    return db.get(Endpoint, endpoint_id)
+
+
+def update_endpoint(
+    db: Session, endpoint_id: int, data: EndpointUpdate
+) -> Endpoint | None:
+    endpoint = db.get(Endpoint, endpoint_id)
+
+    if endpoint is None:
+        return None
+
+    changes = data.model_dump(exclude_unset=True, exclude_none=True)
+
+    if "url" in changes:
+        changes["url"] = str(changes["url"])
+
+    for field, value in changes.items():
+        setattr(endpoint, field, value)
+
+    try:
+        db.commit()
+        db.refresh(endpoint)
+    except IntegrityError as exc:
+        db.rollback()
+        raise EndpointAlreadyExists(
+            "An endpoint with this URL already exists."
+        ) from exc
+
+    return endpoint
+
+
+def delete_endpoint(db: Session, endpoint_id: int) -> bool:
+    endpoint = db.get(Endpoint, endpoint_id)
+
+    if endpoint is None:
+        return False
+
+    db.delete(endpoint)
+    db.commit()
+    return True

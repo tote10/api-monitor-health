@@ -4,3 +4,13 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 *.md
+# Ignore the actual local database file (SQLite example)
+*.sqlite3
+*.db
+
+# Ignore Python compiled bytecode inside the alembic folder
+alembic/__pycache__/
+alembic/versions/__pycache__/
+
+# Ignore environment variables / secrets
+.env
