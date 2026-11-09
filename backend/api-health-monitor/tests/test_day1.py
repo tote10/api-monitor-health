@@ -1,19 +1,4 @@
-import pytest
-from fastapi.testclient import TestClient
-from main import app
-from app.services.endpoint_service import reset_mock_db
-
-client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def run_around_tests():
-    reset_mock_db()
-    yield
-    reset_mock_db()
-
-
-def test_health_check():
+def test_health_check(client):
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
@@ -22,7 +7,7 @@ def test_health_check():
     assert data["environment"] == "development"
 
 
-def test_root_endpoint():
+def test_root_endpoint(client):
     response = client.get("/")
     assert response.status_code == 200
     data = response.json()
@@ -30,7 +15,7 @@ def test_root_endpoint():
     assert data["docs"] == "/docs"
 
 
-def test_register_endpoint():
+def test_register_endpoint(client):
     payload = {
         "name": "Production Auth API",
         "url": "https://auth.example.com/health",
@@ -45,11 +30,48 @@ def test_register_endpoint():
     assert data["id"] == 1
     assert data["name"] == payload["name"]
     assert data["url"] == "https://auth.example.com/health"
+    assert data["interval_seconds"] == 60
+    assert data["timeout_seconds"] == 5
+    assert data["expected_status_code"] == 200
     assert data["is_active"] is True
     assert "created_at" in data
 
 
-def test_list_and_get_endpoint():
+def test_register_endpoint_uses_defaults(client):
+    response = client.post(
+        "/api/v1/endpoints",
+        json={
+            "name": "Billing API",
+            "url": "https://billing.example.com/status",
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["interval_seconds"] == 60
+    assert data["timeout_seconds"] == 5
+    assert data["expected_status_code"] == 200
+    assert data["is_active"] is True
+
+
+def test_duplicate_url_is_rejected(client):
+    payload = {
+        "name": "First",
+        "url": "https://duplicate.example.com/health",
+    }
+    assert client.post("/api/v1/endpoints", json=payload).status_code == 201
+
+    duplicate = {
+        "name": "Second",
+        "url": "https://duplicate.example.com/health/",
+    }
+    response = client.post("/api/v1/endpoints", json=duplicate)
+    assert response.status_code == 400
+    assert "already exists" in response.json()["detail"]
+
+    assert len(client.get("/api/v1/endpoints").json()) == 1
+
+
+def test_list_and_get_endpoint(client):
     # Register endpoint
     payload = {
         "name": "Billing API",
@@ -71,7 +93,13 @@ def test_list_and_get_endpoint():
     assert get_res.json()["id"] == endpoint_id
 
 
-def test_patch_and_delete_endpoint():
+def test_get_missing_endpoint_returns_404(client):
+    response = client.get("/api/v1/endpoints/999")
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+
+
+def test_patch_and_delete_endpoint(client):
     # Register endpoint
     create_res = client.post("/api/v1/endpoints", json={
         "name": "Old Name",
@@ -95,3 +123,43 @@ def test_patch_and_delete_endpoint():
     # Verify not found
     get_after_delete = client.get(f"/api/v1/endpoints/{endpoint_id}")
     assert get_after_delete.status_code == 404
+
+
+def test_patch_to_duplicate_url_is_rejected(client):
+    first = client.post(
+        "/api/v1/endpoints",
+        json={"name": "First", "url": "https://one.example.com/health"},
+    ).json()
+    second = client.post(
+        "/api/v1/endpoints",
+        json={"name": "Second", "url": "https://two.example.com/health"},
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/endpoints/{second['id']}",
+        json={"url": first["url"]},
+    )
+    assert response.status_code == 400
+    assert "already exists" in response.json()["detail"]
+
+    unchanged = client.get(f"/api/v1/endpoints/{second['id']}").json()
+    assert unchanged["url"] == "https://two.example.com/health"
+
+
+def test_patch_and_delete_missing_endpoint_return_404(client):
+    assert client.patch(
+        "/api/v1/endpoints/999", json={"name": "Missing"}
+    ).status_code == 404
+    assert client.delete("/api/v1/endpoints/999").status_code == 404
+
+
+def test_invalid_interval_is_rejected(client):
+    response = client.post(
+        "/api/v1/endpoints",
+        json={
+            "name": "Too Frequent",
+            "url": "https://frequent.example.com/health",
+            "interval_seconds": 5,
+        },
+    )
+    assert response.status_code == 422

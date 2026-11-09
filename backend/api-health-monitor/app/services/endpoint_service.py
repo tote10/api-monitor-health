@@ -1,3 +1,4 @@
+from pydantic import HttpUrl
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,10 +11,15 @@ class EndpointAlreadyExists(Exception):
     """Raised when an endpoint URL is already registered."""
 
 
+def _normalize_url(url: HttpUrl) -> str:
+    """Store URLs without a trailing slash so duplicates are detected."""
+    return str(url).rstrip("/")
+
+
 def register_endpoint(db: Session, data: EndpointCreate) -> Endpoint:
     endpoint = Endpoint(
         name=data.name,
-        url=str(data.url),
+        url=_normalize_url(data.url),
         interval_seconds=data.interval_seconds,
         timeout_seconds=data.timeout_seconds,
         expected_status_code=data.expected_status_code,
@@ -56,7 +62,7 @@ def update_endpoint(
     changes = data.model_dump(exclude_unset=True, exclude_none=True)
 
     if "url" in changes:
-        changes["url"] = str(changes["url"])
+        changes["url"] = _normalize_url(changes["url"])
 
     for field, value in changes.items():
         setattr(endpoint, field, value)
