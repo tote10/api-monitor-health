@@ -9,12 +9,52 @@ every result so you can see status, uptime, response times, and failures.
 - **History** stores every check with status code, response time, and error detail.
 - **Retention** prunes old results automatically (30 days by default).
 - **REST API** with interactive docs at `/docs`.
-- **PostgreSQL** storage through SQLAlchemy and Alembic migrations.
+- **SQLite or PostgreSQL** storage through SQLAlchemy and Alembic migrations.
 - **Docker Compose** setup with a database healthcheck and migrations on startup.
 
-## Quick start with Docker
+## Quick start without Docker
 
-Docker with the Compose plugin is the only requirement.
+Only Python 3.11 or newer is required. The default `.env.example` uses
+SQLite, so no database server is needed.
+
+```bash
+cd backend/api-health-monitor
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env
+
+alembic upgrade head
+uvicorn main:app --reload
+```
+
+Open <http://127.0.0.1:8000> for the dashboard and <http://127.0.0.1:8000/docs>
+for the API documentation. Data is stored in `api_health_monitor.db` next to the
+app and is ignored by git.
+
+Run the test suite with:
+
+```bash
+pytest -q
+```
+
+The tests use an in-memory SQLite database and do not touch your configured
+database.
+
+To use PostgreSQL instead of SQLite, point `DATABASE_URL` in `.env` at your
+database (see `.env.example`) and run `alembic upgrade head` again. For example:
+
+```bash
+DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/api_health_monitor"
+```
+
+## Run with Docker
+
+Docker with the Compose plugin is the only requirement. Compose sets its own
+PostgreSQL `DATABASE_URL`, so the SQLite settings in `.env.example` do not apply
+and the local SQLite file is not used.
 
 ```bash
 cd backend/api-health-monitor
@@ -39,36 +79,8 @@ The API container runs one worker because the scheduler lives inside the API
 process. Do not increase `--workers` without moving scheduling to an external
 system.
 
-## Local development
-
-Requirements: Python 3.12 (3.11+ works), and PostgreSQL, or SQLite for a quick
-single-process setup.
-
-```bash
-cd backend/api-health-monitor
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-cp .env.example .env
-# Edit DATABASE_URL in .env. For Zero-setup SQLite use:
-# DATABASE_URL="sqlite:///./api_health_monitor.db"
-
-alembic upgrade head
-uvicorn main:app --reload
-```
-
-Open <http://127.0.0.1:8000>. API documentation is at `/docs`.
-
-Run the test suite with:
-
-```bash
-pytest -q
-```
-
-The tests use an in-memory SQLite database and do not touch your configured
-database.
+Endpoints added locally live in the SQLite file, so they are not carried over to
+the Docker Compose PostgreSQL volume.
 
 ## Configuration
 
@@ -76,7 +88,7 @@ Environment variables are read from the process environment and from `.env`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | *(required)* | SQLAlchemy URL, e.g. `postgresql+psycopg://user:pass@host:5432/db` or `sqlite:///./monitor.db`. |
+| `DATABASE_URL` | *(required)* | SQLAlchemy URL. `.env.example` uses `sqlite:///./api_health_monitor.db`; for PostgreSQL use `postgresql+psycopg://user:pass@host:5432/db`. |
 | `MONITORING_ENABLED` | `true` | Start the background scheduler. Manual checks still work when disabled. |
 | `SCHEDULER_POLL_SECONDS` | `5` | How often the scheduler looks for due endpoints. This is not the per-endpoint interval. |
 | `CHECK_HISTORY_RETENTION_DAYS` | `30` | Delete check results older than this. Set to `0` to keep history forever. |
