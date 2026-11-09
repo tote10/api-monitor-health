@@ -44,3 +44,27 @@ class EndpointResponse(EndpointBase):
             }
         }
     }
+
+
+class CheckResultResponse(BaseModel):
+    id: int
+    endpoint_id: int
+    checked_at: datetime
+    is_success: bool
+    status_code: Optional[int] = None
+    response_time_ms: Optional[int] = None
+    error: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class EndpointStatusResponse(BaseModel):
+    endpoint_id: int
+    is_up: Optional[bool] = None
+    last_checked_at: Optional[datetime] = None
+    last_status_code: Optional[int] = None
+    last_response_time_ms: Optional[int] = None
+    last_error: Optional[str] = None
+    total_checks: int
+    successful_checks: int
+    uptime_percentage: Optional[float] = None

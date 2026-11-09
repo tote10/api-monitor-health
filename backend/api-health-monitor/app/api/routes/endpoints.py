@@ -1,14 +1,31 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.schemas import EndpointCreate, EndpointResponse, EndpointUpdate
+from app.api.schemas import (
+    CheckResultResponse,
+    EndpointCreate,
+    EndpointResponse,
+    EndpointStatusResponse,
+    EndpointUpdate,
+)
 from app.db.database import get_db
-from app.services import endpoint_service
+from app.db.models import Endpoint
+from app.services import endpoint_service, monitor_service
 from app.services.endpoint_service import EndpointAlreadyExists
 
 router = APIRouter(prefix="/endpoints", tags=["Endpoints"])
+
+
+def _get_endpoint_or_404(db: Session, endpoint_id: int) -> Endpoint:
+    endpoint = endpoint_service.get_endpoint_by_id(db, endpoint_id)
+    if endpoint is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Endpoint with ID {endpoint_id} not found",
+        )
+    return endpoint
 
 
 @router.post(
@@ -42,13 +59,7 @@ def get_endpoints(db: Session = Depends(get_db)):
     summary="Get endpoint details by ID",
 )
 def get_endpoint(endpoint_id: int, db: Session = Depends(get_db)):
-    endpoint = endpoint_service.get_endpoint_by_id(db, endpoint_id)
-    if not endpoint:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Endpoint with ID {endpoint_id} not found",
-        )
-    return endpoint
+    return _get_endpoint_or_404(db, endpoint_id)
 
 
 @router.patch(
@@ -75,6 +86,41 @@ def update_endpoint(
             detail=f"Endpoint with ID {endpoint_id} not found",
         )
     return endpoint
+
+
+@router.post(
+    "/{endpoint_id}/check",
+    response_model=CheckResultResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Run a health check for an endpoint now",
+)
+async def run_endpoint_check(endpoint_id: int, db: Session = Depends(get_db)):
+    endpoint = _get_endpoint_or_404(db, endpoint_id)
+    return await monitor_service.perform_check(db, endpoint)
+
+
+@router.get(
+    "/{endpoint_id}/checks",
+    response_model=List[CheckResultResponse],
+    summary="List recent health check results",
+)
+def get_endpoint_checks(
+    endpoint_id: int,
+    limit: int = Query(default=50, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    _get_endpoint_or_404(db, endpoint_id)
+    return monitor_service.list_check_results(db, endpoint_id, limit)
+
+
+@router.get(
+    "/{endpoint_id}/status",
+    response_model=EndpointStatusResponse,
+    summary="Get the latest health status for an endpoint",
+)
+def get_endpoint_status(endpoint_id: int, db: Session = Depends(get_db)):
+    _get_endpoint_or_404(db, endpoint_id)
+    return monitor_service.get_status_summary(db, endpoint_id)
 
 
 @router.delete(

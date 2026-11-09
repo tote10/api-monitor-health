@@ -1,7 +1,8 @@
 import os
 
-# Configure the database before importing the application modules.
+# Configure the application before importing its modules.
 os.environ.setdefault("DATABASE_URL", "sqlite://")
+os.environ["MONITORING_ENABLED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,21 +15,33 @@ from main import app
 
 
 @pytest.fixture()
-def client():
+def db_engine():
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    testing_session = sessionmaker(
-        bind=engine,
+    Base.metadata.create_all(bind=engine)
+
+    yield engine
+
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+
+
+@pytest.fixture()
+def session_factory(db_engine):
+    return sessionmaker(
+        bind=db_engine,
         autoflush=False,
         expire_on_commit=False,
     )
-    Base.metadata.create_all(bind=engine)
 
+
+@pytest.fixture()
+def client(session_factory):
     def override_get_db():
-        db = testing_session()
+        db = session_factory()
         try:
             yield db
         finally:
@@ -40,5 +53,3 @@ def client():
         yield test_client
 
     app.dependency_overrides.clear()
-    Base.metadata.drop_all(bind=engine)
-    engine.dispose()

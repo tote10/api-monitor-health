@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +8,8 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
+    MONITORING_ENABLED: bool = True
+    SCHEDULER_POLL_SECONDS: float = Field(default=5.0, ge=1.0, le=300.0)
 
     model_config = SettingsConfigDict(
         env_file=".env",
