@@ -223,3 +223,31 @@ def test_scheduler_records_batch_results(client, session_factory, mock_http):
     assert healthy_status["is_up"] is True
     assert broken_status["is_up"] is False
     assert broken_status["last_error"].startswith("ConnectError")
+
+
+def test_prune_check_history_removes_only_expired_results(
+    client, session_factory, mock_http
+):
+    endpoint = _create_endpoint(client)
+    for _ in range(2):
+        client.post(f"/api/v1/endpoints/{endpoint['id']}/check")
+
+    now = datetime.now(timezone.utc)
+    with session_factory() as db:
+        results = list(db.scalars(select(CheckResult)).all())
+        results[0].checked_at = now - timedelta(days=31)
+        results[1].checked_at = now - timedelta(days=1)
+        db.commit()
+
+    removed = monitor_service.prune_check_history(30, session_factory)
+
+    assert removed == 1
+    with session_factory() as db:
+        remaining = list(db.scalars(select(CheckResult)).all())
+    assert len(remaining) == 1
+    assert remaining[0].checked_at >= now - timedelta(days=2)
+
+    # Retention of zero disables pruning.
+    assert monitor_service.prune_check_history(0, session_factory) == 0
+    with session_factory() as db:
+        assert db.scalar(select(func.count()).select_from(CheckResult)) == 1

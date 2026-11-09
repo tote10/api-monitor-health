@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -217,14 +217,54 @@ async def run_due_checks(
     return len(results)
 
 
-async def monitoring_loop(poll_seconds: float) -> None:
-    """Run due checks until the surrounding application shuts down."""
+def prune_check_history(
+    retention_days: int,
+    session_factory: Callable[[], Session] = SessionLocal,
+) -> int:
+    """Delete check results older than the retention window."""
+    if retention_days <= 0:
+        return 0
+
+    cutoff = _utcnow() - timedelta(days=retention_days)
+
+    with session_factory() as db:
+        result = db.execute(
+            delete(CheckResult).where(CheckResult.checked_at < cutoff)
+        )
+        db.commit()
+        removed = result.rowcount
+        return removed if removed and removed > 0 else 0
+
+
+async def monitoring_loop(
+    poll_seconds: float,
+    retention_days: int = 0,
+    cleanup_interval_seconds: int = 3600,
+) -> None:
+    """Run due checks and prune old results until the app shuts down."""
     logger.info("Endpoint monitoring started")
+    last_cleanup: float | None = None
+
     while True:
         try:
             checked = await run_due_checks()
             if checked:
                 logger.info("Stored %s health check result(s)", checked)
+
+            now = time.monotonic()
+            if retention_days > 0 and (
+                last_cleanup is None
+                or now - last_cleanup >= cleanup_interval_seconds
+            ):
+                # Advance first so a failed prune is not retried every poll.
+                last_cleanup = now
+                removed = prune_check_history(retention_days)
+                if removed:
+                    logger.info(
+                        "Pruned %s health check result(s) older than %s day(s)",
+                        removed,
+                        retention_days,
+                    )
         except asyncio.CancelledError:
             raise
         except Exception:
