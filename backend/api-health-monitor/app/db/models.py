@@ -76,6 +76,7 @@ class CheckResult(Base):
             "endpoint_id",
             "checked_at",
         ),
+        Index("ix_check_results_checked_at", "checked_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API Health Monitor</title>
+  <meta name="description" content="Register HTTP endpoints, run health checks, and watch uptime from one dashboard.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563eb'/%3E%3Cpath d='M5 17h5l2-6 4 12 3-8 2 2h6' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" role="img">
+            <path d="M5 17h5l2-6 4 12 3-8 2 2h6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1>API Health Monitor</h1>
+          <p>Your services, checked on schedule and summarized in one place.</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="live-status" id="live-status">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span id="refresh-label">Auto-refresh is on</span>
+        </span>
+        <button class="button button-ghost" id="refresh-button" type="button">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Refresh
+        </button>
+        <button class="button button-primary" id="add-button" type="button">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Add endpoint
+        </button>
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="summary-grid" aria-label="Monitoring summary">
+        <article class="summary-card">
+          <div class="summary-icon summary-icon-total" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+          </div>
+          <div>
+            <p class="summary-label">Monitored</p>
+            <p class="summary-value" id="summary-total">0</p>
+            <p class="summary-note">registered endpoints</p>
+          </div>
+        </article>
+        <article class="summary-card">
+          <div class="summary-icon summary-icon-up" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div>
+            <p class="summary-label">Operational</p>
+            <p class="summary-value" id="summary-up">0</p>
+            <p class="summary-note">last check passed</p>
+          </div>
+        </article>
+        <article class="summary-card">
+          <div class="summary-icon summary-icon-down" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 8v5M12 16.5v.1M10.3 4.9L3.5 17a1.6 1.6 0 0 0 1.4 2.4h14.2a1.6 1.6 0 0 0 1.4-2.4L13.7 4.9a1.6 1.6 0 0 0-3.4 0Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div>
+            <p class="summary-label">Down</p>
+            <p class="summary-value" id="summary-down">0</p>
+            <p class="summary-note">needs attention</p>
+          </div>
+        </article>
+        <article class="summary-card">
+          <div class="summary-icon summary-icon-paused" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          </div>
+          <div>
+            <p class="summary-label">Paused</p>
+            <p class="summary-value" id="summary-paused">0</p>
+            <p class="summary-note">not being scheduled</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel" aria-labelledby="endpoints-heading">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Endpoint registry</p>
+            <h2 id="endpoints-heading">Monitored services</h2>
+          </div>
+          <div class="toolbar">
+            <label class="search-box">
+              <span class="visually-hidden">Search endpoints</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13.2 13.2L17 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <input type="search" id="search-input" placeholder="Search name or URL">
+            </label>
+            <label class="filter-box">
+              <span class="visually-hidden">Filter by status</span>
+              <select id="status-filter">
+                <option value="all">All statuses</option>
+                <option value="up">Operational</option>
+                <option value="down">Down</option>
+                <option value="pending">Pending</option>
+                <option value="paused">Paused</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="banner banner-error" id="error-banner" role="alert" hidden>
+          <span id="error-message">Something went wrong.</span>
+          <button class="button button-small button-ghost" id="retry-button" type="button">Try again</button>
+        </div>
+
+        <div class="loading-state" id="loading-state" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          Loading endpoints...
+        </div>
+
+        <div class="endpoint-list" id="endpoint-list" aria-live="polite"></div>
+
+        <div class="empty-state" id="empty-state" hidden>
+          <div class="empty-illustration" aria-hidden="true">
+            <svg viewBox="0 0 64 64">
+              <rect x="9" y="14" width="46" height="36" rx="8" fill="none" stroke="currentColor" stroke-width="2.4"/>
+              <path d="M17 35h8l3-7 5 14 4-10 3 3h7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h3>No endpoints yet</h3>
+          <p>Add the first URL you want to watch. The scheduler starts checking it automatically.</p>
+          <button class="button button-primary" id="empty-add-button" type="button">Add your first endpoint</button>
+        </div>
+
+        <div class="empty-state" id="no-results-state" hidden>
+          <h3>No matching endpoints</h3>
+          <p>Try a different search or status filter.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>API Health Monitor treats every configured URL as a target and stores each check result.</span>
+      <span class="footer-links">
+        <a href="/docs" target="_blank" rel="noreferrer">API docs</a>
+        <span aria-hidden="true">·</span>
+        <a href="/ready" target="_blank" rel="noreferrer">Readiness</a>
+      </span>
+    </footer>
+  </div>
+
+  <dialog class="modal" id="endpoint-dialog">
+    <form id="endpoint-form" novalidate>
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow" id="dialog-eyebrow">New target</p>
+          <h2 id="dialog-title">Add endpoint</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="endpoint-dialog" aria-label="Close dialog">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="form-grid">
+        <label class="field field-full">
+          <span>Name</span>
+          <input name="name" type="text" maxlength="100" required placeholder="Production API">
+        </label>
+        <label class="field field-full">
+          <span>URL</span>
+          <input name="url" type="url" required placeholder="https://api.example.com/health">
+          <small>http:// and https:// targets are supported.</small>
+        </label>
+        <label class="field">
+          <span>Check every</span>
+          <span class="input-with-suffix">
+            <input name="interval_seconds" type="number" min="10" max="3600" step="1" value="60" required>
+            <span>sec</span>
+          </span>
+        </label>
+        <label class="field">
+          <span>Timeout</span>
+          <span class="input-with-suffix">
+            <input name="timeout_seconds" type="number" min="1" max="60" step="1" value="5" required>
+            <span>sec</span>
+          </span>
+        </label>
+        <label class="field">
+          <span>Expected status</span>
+          <input name="expected_status_code" type="number" min="100" max="599" step="1" value="200" required>
+        </label>
+        <label class="field checkbox-field">
+          <input name="is_active" type="checkbox" checked>
+          <span>
+            Active
+            <small>Run automatic checks</small>
+          </span>
+        </label>
+      </div>
+
+      <p class="form-error" id="form-error" role="alert" hidden></p>
+
+      <div class="modal-actions">
+        <button class="button button-ghost" type="button" data-close-dialog="endpoint-dialog">Cancel</button>
+        <button class="button button-primary" type="submit" id="save-button">Save endpoint</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal modal-wide" id="history-dialog">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow">Check history</p>
+        <h2 id="history-title">Recent checks</h2>
+      </div>
+      <button class="icon-button" type="button" data-close-dialog="history-dialog" aria-label="Close dialog">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="history-summary" id="history-summary"></div>
+    <div class="history-chart" id="history-chart" aria-hidden="true"></div>
+    <div class="history-list" id="history-list"></div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

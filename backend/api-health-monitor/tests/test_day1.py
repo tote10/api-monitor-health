@@ -163,3 +163,22 @@ def test_invalid_interval_is_rejected(client):
         },
     )
     assert response.status_code == 422
+
+
+def test_readiness_check(client):
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert response.json()["database"] == "ok"
+
+
+def test_root_serves_dashboard_to_browsers(client):
+    response = client.get("/", headers={"accept": "text/html"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "API Health Monitor" in response.text
+
+
+def test_health_reports_monitoring_state(client):
+    response = client.get("/health")
+    assert response.json()["monitoring_enabled"] is False

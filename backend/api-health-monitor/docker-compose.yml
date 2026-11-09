@@ -1,0 +1,37 @@
+name: api-health-monitor
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: api_health_monitor
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - api-health-monitor-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d api_health_monitor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: .
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/api_health_monitor
+      ENVIRONMENT: production
+      DEBUG: "false"
+      MONITORING_ENABLED: "true"
+      SCHEDULER_POLL_SECONDS: "5"
+      CHECK_HISTORY_RETENTION_DAYS: "30"
+      CHECK_HISTORY_CLEANUP_INTERVAL_SECONDS: "3600"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  api-health-monitor-db:

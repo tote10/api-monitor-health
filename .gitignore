@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 *.md
+!README.md
 # Ignore the actual local database file (SQLite example)
 *.sqlite3
 *.db

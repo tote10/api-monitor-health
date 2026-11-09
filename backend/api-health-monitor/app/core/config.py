@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     MONITORING_ENABLED: bool = True
     SCHEDULER_POLL_SECONDS: float = Field(default=5.0, ge=1.0, le=300.0)
+    CHECK_HISTORY_RETENTION_DAYS: int = Field(default=30, ge=0, le=3650)
+    CHECK_HISTORY_CLEANUP_INTERVAL_SECONDS: int = Field(
+        default=3600, ge=60, le=86400
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
