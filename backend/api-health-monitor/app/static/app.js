@@ -7,8 +7,14 @@
   var state = {
     endpoints: [],
     statuses: new Map(),
+    channels: [],
+    users: [],
+    session: null,
+    authMode: "login",
     loading: false,
     editingId: null,
+    historyEndpoint: null,
+    statsHours: 24,
     search: "",
     filter: "all"
   };
@@ -41,6 +47,40 @@
     historySummary: document.getElementById("history-summary"),
     historyChart: document.getElementById("history-chart"),
     historyList: document.getElementById("history-list"),
+    statsRange: document.getElementById("stats-range"),
+    statsSummary: document.getElementById("stats-summary"),
+    uptimeChart: document.getElementById("uptime-chart"),
+    responseChart: document.getElementById("response-chart"),
+    incidentList: document.getElementById("incident-list"),
+    bootScreen: document.getElementById("boot-screen"),
+    appShell: document.getElementById("app-shell"),
+    authScreen: document.getElementById("auth-screen"),
+    authForm: document.getElementById("auth-form"),
+    authTitle: document.getElementById("auth-title"),
+    authHint: document.getElementById("auth-hint"),
+    authNameField: document.getElementById("auth-name-field"),
+    authError: document.getElementById("auth-error"),
+    authSubmit: document.getElementById("auth-submit"),
+    authSwitch: document.getElementById("auth-switch"),
+    userChip: document.getElementById("user-chip"),
+    logout: document.getElementById("logout-button"),
+    alertsPanel: document.getElementById("alerts-panel"),
+    channelList: document.getElementById("channel-list"),
+    channelEmpty: document.getElementById("channel-empty"),
+    addChannel: document.getElementById("add-channel-button"),
+    channelDialog: document.getElementById("channel-dialog"),
+    channelForm: document.getElementById("channel-form"),
+    channelDialogTitle: document.getElementById("channel-dialog-title"),
+    channelError: document.getElementById("channel-error"),
+    channelSave: document.getElementById("channel-save-button"),
+    channelTargetHint: document.getElementById("channel-target-hint"),
+    teamPanel: document.getElementById("team-panel"),
+    userList: document.getElementById("user-list"),
+    addUser: document.getElementById("add-user-button"),
+    userDialog: document.getElementById("user-dialog"),
+    userForm: document.getElementById("user-form"),
+    userError: document.getElementById("user-error"),
+    userSave: document.getElementById("user-save-button"),
     toast: document.getElementById("toast")
   };
 
@@ -88,6 +128,16 @@
       .then(function (response) {
         if (response.status === 204) {
           return null;
+        }
+        if (
+          response.status === 401 &&
+          elements.authScreen.hidden &&
+          state.session &&
+          state.session.auth_enabled
+        ) {
+          window.setTimeout(function () {
+            refreshSession().then(showAuthFor);
+          }, 0);
         }
         return response.text().then(function (text) {
           var data = null;
@@ -190,7 +240,7 @@
   }
 
   function formatResponseTime(value) {
-    return value === null || value === undefined ? "—" : value + " ms";
+    return value === null || value === undefined ? "—" : Math.round(value) + " ms";
   }
 
   function formatUptime(value) {
@@ -238,12 +288,16 @@
           ? '<div class="card-error">' + warningIcon() + "<span>" + escapeHtml(error) + "</span></div>"
           : "") +
         '<div class="card-actions">' +
-          '<button class="action-button" type="button" data-action="check" data-id="' + endpoint.id + '">Check now</button>' +
+          (isAdmin()
+            ? '<button class="action-button" type="button" data-action="check" data-id="' + endpoint.id + '">Check now</button>'
+            : "") +
           '<button class="action-button" type="button" data-action="history" data-id="' + endpoint.id + '">History</button>' +
-          '<button class="action-button" type="button" data-action="edit" data-id="' + endpoint.id + '">Edit</button>' +
-          '<span class="action-spacer"></span>' +
-          '<button class="action-button" type="button" data-action="toggle" data-id="' + endpoint.id + '">' + activeLabel + "</button>" +
-          '<button class="action-button danger" type="button" data-action="delete" data-id="' + endpoint.id + '">Delete</button>' +
+          (isAdmin()
+            ? '<button class="action-button" type="button" data-action="edit" data-id="' + endpoint.id + '">Edit</button>' +
+              '<span class="action-spacer"></span>' +
+              '<button class="action-button" type="button" data-action="toggle" data-id="' + endpoint.id + '">' + activeLabel + "</button>" +
+              '<button class="action-button danger" type="button" data-action="delete" data-id="' + endpoint.id + '">Delete</button>'
+            : "") +
         "</div>" +
       "</article>"
     );
@@ -366,6 +420,7 @@
       elements.endpointForm.elements.timeout_seconds.value = endpoint.timeout_seconds;
       elements.endpointForm.elements.expected_status_code.value = endpoint.expected_status_code;
       elements.endpointForm.elements.is_active.checked = endpoint.is_active;
+      elements.endpointForm.elements.alerts_enabled.checked = endpoint.alerts_enabled;
     } else {
       elements.dialogTitle.textContent = "Add endpoint";
       elements.dialogEyebrow.textContent = "New target";
@@ -417,7 +472,8 @@
       interval_seconds: Number(form.elements.interval_seconds.value),
       timeout_seconds: Number(form.elements.timeout_seconds.value),
       expected_status_code: Number(form.elements.expected_status_code.value),
-      is_active: form.elements.is_active.checked
+      is_active: form.elements.is_active.checked,
+      alerts_enabled: form.elements.alerts_enabled.checked
     };
 
     var editingId = state.editingId;
@@ -563,11 +619,15 @@
   }
 
   function openHistory(endpoint) {
+    state.historyEndpoint = endpoint;
+    state.statsHours = 24;
+    updateRangeButtons();
     elements.historyTitle.textContent = "Checks for " + endpoint.name;
     elements.historySummary.textContent = "Loading check history...";
     elements.historyChart.innerHTML = "";
     elements.historyList.innerHTML = "";
     elements.historyDialog.showModal();
+    loadStats();
 
     api("/endpoints/" + endpoint.id + "/checks?limit=50")
       .then(function (checks) {
@@ -580,12 +640,686 @@
       });
   }
 
+
+  function isAdmin() {
+    if (!state.session) {
+      return false;
+    }
+    if (!state.session.auth_enabled) {
+      return true;
+    }
+    return Boolean(state.session.user && state.session.user.role === "admin");
+  }
+
+  function refreshSession() {
+    return api("/auth/session").then(function (session) {
+      state.session = session;
+      return session;
+    });
+  }
+
+  function showAuthScreen() {
+    elements.authScreen.hidden = false;
+    elements.appShell.hidden = true;
+    elements.bootScreen.hidden = true;
+  }
+
+  function hideAuthScreen() {
+    elements.authScreen.hidden = true;
+    elements.appShell.hidden = false;
+    elements.bootScreen.hidden = true;
+  }
+
+  function applyAuthHint() {
+    var session = state.session || {};
+    if (state.authMode === "register") {
+      elements.authHint.textContent =
+        session.has_users === false
+          ? "No accounts exist yet. The first account becomes the administrator."
+          : "New accounts start as viewers who can see endpoints and history. An administrator can promote them.";
+      return;
+    }
+    elements.authHint.textContent = session.registration_open
+      ? "Sign in, or create an account for your team."
+      : "Use the account an administrator created for you.";
+  }
+
+  function setAuthMode(mode) {
+    state.authMode = mode;
+    var registering = mode === "register";
+    elements.authTitle.textContent = registering ? "Create your account" : "Sign in";
+    elements.authNameField.hidden = !registering;
+    elements.authForm.elements.name.required = registering;
+    elements.authForm.elements.password.autocomplete = registering
+      ? "new-password"
+      : "current-password";
+    elements.authSubmit.textContent = registering ? "Create account" : "Sign in";
+    elements.authSwitch.textContent = registering
+      ? "Already have an account? Sign in"
+      : "Create an account";
+    elements.authError.hidden = true;
+    applyAuthHint();
+  }
+
+  function showAuthFor(session) {
+    state.session = session;
+    var firstRun = !session.has_users;
+    setAuthMode(firstRun ? "register" : "login");
+    elements.authSwitch.hidden = !session.registration_open || firstRun;
+    applyAuthHint();
+    showAuthScreen();
+  }
+
+  function applySession(session) {
+    var manager = isAdmin();
+    var signedIn = Boolean(session.auth_enabled && session.authenticated);
+
+    elements.userChip.hidden = !signedIn;
+    elements.logout.hidden = !signedIn;
+    if (signedIn) {
+      elements.userChip.textContent =
+        session.user.name + " · " + session.user.role;
+    }
+
+    elements.add.hidden = !manager;
+    elements.emptyAdd.hidden = !manager;
+    elements.addChannel.hidden = !manager;
+    elements.alertsPanel.hidden = !manager;
+    elements.teamPanel.hidden = !manager || !session.auth_enabled;
+  }
+
+  function startDashboard(session) {
+    if (session.auth_enabled && !session.authenticated) {
+      applySession(session);
+      showAuthFor(session);
+      return;
+    }
+
+    applySession(session);
+    hideAuthScreen();
+    load();
+    loadChannels();
+    loadUsers();
+  }
+
+  function submitAuth(event) {
+    event.preventDefault();
+    var form = elements.authForm;
+    var registering = state.authMode === "register";
+    elements.authError.hidden = true;
+
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    var payload = {
+      email: form.elements.email.value.trim(),
+      password: form.elements.password.value
+    };
+    if (registering) {
+      payload.name = form.elements.name.value.trim();
+    }
+
+    elements.authSubmit.disabled = true;
+    api(registering ? "/auth/register" : "/auth/login", {
+      method: "POST",
+      body: payload
+    })
+      .then(function () {
+        form.reset();
+        return refreshSession();
+      })
+      .then(startDashboard)
+      .catch(function (error) {
+        elements.authError.textContent = error.message;
+        elements.authError.hidden = false;
+      })
+      .finally(function () {
+        elements.authSubmit.disabled = false;
+      });
+  }
+
+  function logout() {
+    api("/auth/logout", { method: "POST" })
+      .catch(function () {
+        return null;
+      })
+      .then(function () {
+        state.endpoints = [];
+        state.statuses = new Map();
+        state.channels = [];
+        state.users = [];
+        elements.list.innerHTML = "";
+        elements.channelList.innerHTML = "";
+        elements.userList.innerHTML = "";
+        return refreshSession();
+      })
+      .then(showAuthFor)
+      .catch(function (error) {
+        toast(error.message, true);
+      });
+  }
+
+  function loadChannels() {
+    if (!isAdmin()) {
+      return Promise.resolve();
+    }
+    return api("/channels")
+      .then(function (channels) {
+        state.channels = channels;
+        renderChannels();
+      })
+      .catch(function (error) {
+        toast(error.message, true);
+      });
+  }
+
+  function renderChannels() {
+    elements.channelList.innerHTML = state.channels
+      .map(function (channel) {
+        var status = channel.last_error
+          ? '<span class="channel-error" title="' + escapeHtml(channel.last_error) + '">' + escapeHtml(channel.last_error) + "</span>"
+          : channel.last_sent_at
+            ? '<span class="channel-meta">Last sent ' + escapeHtml(formatTimeAgo(channel.last_sent_at)) + "</span>"
+            : '<span class="channel-meta">No alerts sent yet</span>';
+
+        return (
+          '<article class="channel-row' + (channel.is_enabled ? "" : " is-paused") + '">' +
+            '<div class="channel-identity">' +
+              "<h3>" + escapeHtml(channel.name) + "</h3>" +
+              '<span class="channel-target">' + escapeHtml(channel.target) + "</span>" +
+            "</div>" +
+            '<span class="badge badge-' + (channel.kind === "email" ? "pending" : "up") + '">' +
+              (channel.kind === "email" ? "Email" : "Webhook") +
+            "</span>" +
+            '<div class="channel-status">' + status + "</div>" +
+            '<div class="channel-actions">' +
+              '<button class="action-button" type="button" data-channel-action="test" data-channel-id="' + channel.id + '">Send test</button>' +
+              '<button class="action-button" type="button" data-channel-action="toggle" data-channel-id="' + channel.id + '">' +
+                (channel.is_enabled ? "Disable" : "Enable") +
+              "</button>" +
+              '<button class="action-button danger" type="button" data-channel-action="delete" data-channel-id="' + channel.id + '">Delete</button>' +
+            "</div>" +
+          "</article>"
+        );
+      })
+      .join("");
+
+    elements.channelEmpty.hidden = state.channels.length !== 0;
+    elements.channelList.hidden = state.channels.length === 0;
+  }
+
+  function updateChannelHint() {
+    var kind = elements.channelForm.elements.kind.value;
+    elements.channelTargetHint.textContent =
+      kind === "email"
+        ? "Alerts are sent through the SMTP server configured on the server."
+        : "Slack and Discord webhook URLs work; any URL that accepts JSON is also supported.";
+    elements.channelForm.elements.target.placeholder =
+      kind === "email"
+        ? "oncall@example.com"
+        : "https://hooks.slack.com/services/...";
+  }
+
+  function openChannelDialog() {
+    elements.channelForm.reset();
+    elements.channelForm.elements.kind.value = "webhook";
+    elements.channelForm.elements.is_enabled.checked = true;
+    elements.channelError.hidden = true;
+    updateChannelHint();
+    elements.channelDialog.showModal();
+    window.setTimeout(function () {
+      elements.channelForm.elements.name.focus();
+    }, 30);
+  }
+
+  function submitChannel(event) {
+    event.preventDefault();
+    var form = elements.channelForm;
+
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    var payload = {
+      name: form.elements.name.value.trim(),
+      kind: form.elements.kind.value,
+      target: form.elements.target.value.trim(),
+      is_enabled: form.elements.is_enabled.checked
+    };
+
+    elements.channelSave.disabled = true;
+    api("/channels", { method: "POST", body: payload })
+      .then(function () {
+        closeDialog("channel-dialog");
+        toast("Alert channel added.");
+        return loadChannels();
+      })
+      .catch(function (error) {
+        elements.channelError.textContent = error.message;
+        elements.channelError.hidden = false;
+      })
+      .finally(function () {
+        elements.channelSave.disabled = false;
+      });
+  }
+
+  function handleChannelAction(action, channel, button) {
+    if (action === "delete") {
+      if (!window.confirm('Delete the alert channel "' + channel.name + '"?')) {
+        return;
+      }
+      api("/channels/" + channel.id, { method: "DELETE" })
+        .then(function () {
+          toast("Alert channel deleted.");
+          return loadChannels();
+        })
+        .catch(function (error) {
+          toast(error.message, true);
+        });
+      return;
+    }
+
+    if (action === "toggle") {
+      button.disabled = true;
+      api("/channels/" + channel.id, {
+        method: "PATCH",
+        body: { is_enabled: !channel.is_enabled }
+      })
+        .then(function () {
+          toast(channel.is_enabled ? "Channel disabled." : "Channel enabled.");
+          return loadChannels();
+        })
+        .catch(function (error) {
+          toast(error.message, true);
+        })
+        .finally(function () {
+          button.disabled = false;
+        });
+      return;
+    }
+
+    if (action === "test") {
+      button.disabled = true;
+      button.textContent = "Sending...";
+      api("/channels/" + channel.id + "/test", { method: "POST" })
+        .then(function (result) {
+          if (result.sent) {
+            toast("Test alert sent.");
+          } else {
+            toast(result.error || "The test alert could not be delivered.", true);
+          }
+          return loadChannels();
+        })
+        .catch(function (error) {
+          toast(error.message, true);
+        })
+        .finally(function () {
+          button.disabled = false;
+          button.textContent = "Send test";
+        });
+    }
+  }
+
+
+  function loadUsers() {
+    if (!isAdmin() || !state.session || !state.session.auth_enabled) {
+      return Promise.resolve();
+    }
+    return api("/auth/users")
+      .then(function (users) {
+        state.users = users;
+        renderUsers();
+      })
+      .catch(function (error) {
+        toast(error.message, true);
+      });
+  }
+
+  function renderUsers() {
+    var currentUserId = state.session.user ? state.session.user.id : null;
+
+    elements.userList.innerHTML = state.users
+      .map(function (user) {
+        var isSelf = user.id === currentUserId;
+        var options = ["admin", "viewer"]
+          .map(function (role) {
+            return (
+              '<option value="' + role + '"' +
+                (user.role === role ? " selected" : "") +
+              ">" + role.charAt(0).toUpperCase() + role.slice(1) + "</option>"
+            );
+          })
+          .join("");
+
+        return (
+          '<article class="user-row' + (user.is_active ? "" : " is-paused") + '">' +
+            '<div class="user-identity">' +
+              "<h3>" + escapeHtml(user.name) + (isSelf ? " (you)" : "") + "</h3>" +
+              '<span class="user-email">' + escapeHtml(user.email) + "</span>" +
+            "</div>" +
+            '<span class="badge badge-' + (user.role === "admin" ? "up" : "paused") + '">' + escapeHtml(user.role) + "</span>" +
+            '<select class="role-select" data-user-id="' + user.id + '" aria-label="Role for ' + escapeHtml(user.name) + '"' + (isSelf ? " disabled" : "") + ">" + options + "</select>" +
+            '<button class="action-button" type="button" data-user-action="toggle" data-user-id="' + user.id + '"' + (isSelf ? " disabled" : "") + ">" +
+              (user.is_active ? "Deactivate" : "Activate") +
+            "</button>" +
+          "</article>"
+        );
+      })
+      .join("");
+  }
+
+  function openUserDialog() {
+    elements.userForm.reset();
+    elements.userForm.elements.role.value = "viewer";
+    elements.userError.hidden = true;
+    elements.userDialog.showModal();
+    window.setTimeout(function () {
+      elements.userForm.elements.name.focus();
+    }, 30);
+  }
+
+  function submitUser(event) {
+    event.preventDefault();
+    var form = elements.userForm;
+
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    elements.userSave.disabled = true;
+    api("/auth/users", {
+      method: "POST",
+      body: {
+        name: form.elements.name.value.trim(),
+        email: form.elements.email.value.trim(),
+        password: form.elements.password.value,
+        role: form.elements.role.value
+      }
+    })
+      .then(function () {
+        closeDialog("user-dialog");
+        toast("Account created.");
+        return loadUsers();
+      })
+      .catch(function (error) {
+        elements.userError.textContent = error.message;
+        elements.userError.hidden = false;
+      })
+      .finally(function () {
+        elements.userSave.disabled = false;
+      });
+  }
+
+  function updateUser(userId, changes, successMessage, onDone) {
+    api("/auth/users/" + userId, { method: "PATCH", body: changes })
+      .then(function () {
+        toast(successMessage);
+        return loadUsers();
+      })
+      .catch(function (error) {
+        toast(error.message, true);
+        return loadUsers();
+      })
+      .finally(onDone || function () {});
+  }
+
+  function handleUserAction(action, user, button) {
+    if (action === "toggle") {
+      button.disabled = true;
+      updateUser(
+        user.id,
+        { is_active: !user.is_active },
+        user.is_active ? "Account deactivated." : "Account activated."
+      );
+    }
+  }
+
+  function formatDuration(seconds) {
+    var total = Math.max(0, Math.round(seconds || 0));
+    if (total < 60) {
+      return total + "s";
+    }
+    var minutes = Math.round(total / 60);
+    if (minutes < 60) {
+      return minutes + "m";
+    }
+    var hours = Math.floor(minutes / 60);
+    var rest = minutes % 60;
+    return rest ? hours + "h " + rest + "m" : hours + "h";
+  }
+
+  function formatShortTime(value) {
+    var date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+    return date.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+
+  function renderBars(container, buckets, valueKey, titleFor, scaledTo100) {
+    var values = buckets.map(function (bucket) {
+      return bucket[valueKey];
+    });
+    var max = Math.max.apply(
+      null,
+      values.filter(function (value) {
+        return typeof value === "number";
+      }).concat([0])
+    );
+
+    container.innerHTML = buckets
+      .map(function (bucket, index) {
+        var value = values[index];
+        var scale = scaledTo100 ? 100 : max;
+        var hasValue = typeof value === "number" && scale > 0;
+        var height = hasValue ? Math.max(4, Math.round((value / scale) * 100)) : 4;
+        var classes = "stats-bar";
+        if (!hasValue) {
+          classes += " empty";
+        } else if (scaledTo100 && bucket.failures > 0) {
+          classes += " has-failure";
+        }
+        return (
+          '<span class="' + classes + '" style="height:' + height + '%" title="' +
+            escapeHtml(titleFor(bucket, value)) + '"></span>'
+        );
+      })
+      .join("");
+  }
+
+  function renderIncidents(incidents) {
+    if (!incidents.length) {
+      elements.incidentList.innerHTML =
+        '<p class="incidents-empty">No incidents in this window.</p>';
+      return;
+    }
+
+    elements.incidentList.innerHTML =
+      '<p class="stats-chart-label">Incidents</p>' +
+      incidents
+        .map(function (incident) {
+          var ended = incident.ended_at
+            ? formatShortTime(incident.ended_at)
+            : "ongoing";
+          return (
+            '<div class="incident-row">' +
+              '<span class="status-dot down" aria-hidden="true"></span>' +
+              '<span class="incident-time">' + escapeHtml(formatShortTime(incident.started_at)) + " → " + escapeHtml(ended) + "</span>" +
+              '<span class="incident-duration">' + formatDuration(incident.duration_seconds) + "</span>" +
+              '<span class="incident-error" title="' + escapeHtml(incident.error || "") + '">' + escapeHtml(incident.error || "No error detail") + "</span>" +
+            "</div>"
+          );
+        })
+        .join("");
+  }
+
+  function renderStats(stats) {
+    elements.statsSummary.innerHTML =
+      '<div><span class="metric-label">Uptime</span><span class="metric-value">' + formatUptime(stats.uptime_percentage) + "</span></div>" +
+      '<div><span class="metric-label">Avg response</span><span class="metric-value">' + formatResponseTime(stats.avg_response_time_ms) + "</span></div>" +
+      '<div><span class="metric-label">p95 response</span><span class="metric-value">' + formatResponseTime(stats.p95_response_time_ms) + "</span></div>" +
+      '<div><span class="metric-label">Checks</span><span class="metric-value">' + stats.total_checks + "</span></div>";
+
+    renderBars(
+      elements.uptimeChart,
+      stats.buckets,
+      "uptime_percentage",
+      function (bucket, value) {
+        return (
+          formatShortTime(bucket.start) +
+          " · " +
+          (typeof value === "number" ? value.toFixed(1) + "% uptime" : "no checks") +
+          " · " + bucket.checks + " checks"
+        );
+      },
+      true
+    );
+
+    renderBars(
+      elements.responseChart,
+      stats.buckets,
+      "avg_response_time_ms",
+      function (bucket, value) {
+        return formatShortTime(bucket.start) + " · " + formatResponseTime(value);
+      },
+      false
+    );
+
+    renderIncidents(stats.incidents);
+  }
+
+  function loadStats() {
+    var endpoint = state.historyEndpoint;
+    if (!endpoint) {
+      return Promise.resolve();
+    }
+
+    elements.statsSummary.textContent = "Loading statistics...";
+    elements.uptimeChart.innerHTML = "";
+    elements.responseChart.innerHTML = "";
+    elements.incidentList.innerHTML = "";
+
+    return api("/endpoints/" + endpoint.id + "/stats?hours=" + state.statsHours)
+      .then(renderStats)
+      .catch(function (error) {
+        elements.statsSummary.textContent = error.message;
+      });
+  }
+
+  function updateRangeButtons() {
+    elements.statsRange.querySelectorAll("[data-hours]").forEach(function (button) {
+      button.classList.toggle(
+        "is-active",
+        Number(button.dataset.hours) === state.statsHours
+      );
+    });
+  }
+
+  function bootstrap() {
+    refreshSession()
+      .then(startDashboard)
+      .catch(function (error) {
+        elements.bootScreen.hidden = true;
+        elements.appShell.hidden = false;
+        showError(error.message);
+      });
+  }
+
   elements.refresh.addEventListener("click", function () {
     load();
   });
 
   elements.retry.addEventListener("click", function () {
     load();
+  });
+
+  elements.authForm.addEventListener("submit", submitAuth);
+
+  elements.authSwitch.addEventListener("click", function () {
+    setAuthMode(state.authMode === "register" ? "login" : "register");
+    elements.authSwitch.hidden = false;
+    elements.authError.hidden = true;
+  });
+
+  elements.logout.addEventListener("click", logout);
+
+  elements.addChannel.addEventListener("click", openChannelDialog);
+
+  elements.channelForm.addEventListener("submit", submitChannel);
+
+  elements.channelForm.elements.kind.addEventListener(
+    "change",
+    updateChannelHint
+  );
+
+  elements.channelList.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-channel-action]");
+    if (!button) {
+      return;
+    }
+    var channel = state.channels.find(function (item) {
+      return String(item.id) === String(button.dataset.channelId);
+    });
+    if (channel) {
+      handleChannelAction(button.dataset.channelAction, channel, button);
+    }
+  });
+
+  elements.addUser.addEventListener("click", openUserDialog);
+
+  elements.userForm.addEventListener("submit", submitUser);
+
+  elements.userList.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-user-action]");
+    if (!button) {
+      return;
+    }
+    var user = state.users.find(function (item) {
+      return String(item.id) === String(button.dataset.userId);
+    });
+    if (user) {
+      handleUserAction(button.dataset.userAction, user, button);
+    }
+  });
+
+  elements.userList.addEventListener("change", function (event) {
+    var select = event.target.closest("[data-user-id]");
+    if (!select) {
+      return;
+    }
+    var user = state.users.find(function (item) {
+      return String(item.id) === String(select.dataset.userId);
+    });
+    if (user) {
+      updateUser(
+        user.id,
+        { role: select.value },
+        "Role updated to " + select.value + ".",
+        function () {
+          select.disabled = false;
+        }
+      );
+      select.disabled = true;
+    }
+  });
+
+  elements.statsRange.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-hours]");
+    if (!button) {
+      return;
+    }
+    state.statsHours = Number(button.dataset.hours);
+    updateRangeButtons();
+    loadStats();
   });
 
   elements.add.addEventListener("click", function () {
@@ -648,16 +1382,20 @@
   });
 
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) {
+    if (!document.hidden && elements.authScreen.hidden) {
       load({ quiet: true });
     }
   });
 
   window.setInterval(function () {
-    if (!document.hidden && !document.querySelector("dialog[open]")) {
+    if (
+      !document.hidden &&
+      elements.authScreen.hidden &&
+      !document.querySelector("dialog[open]")
+    ) {
       load({ quiet: true });
     }
   }, REFRESH_MS);
 
-  load();
+  bootstrap();
 })();

@@ -28,6 +28,18 @@ services:
       SCHEDULER_POLL_SECONDS: "5"
       CHECK_HISTORY_RETENTION_DAYS: "30"
       CHECK_HISTORY_CLEANUP_INTERVAL_SECONDS: "3600"
+      AUTH_ENABLED: "true"
+      ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-true}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-false}"
+      SSRF_PROTECTION_ENABLED: "${SSRF_PROTECTION_ENABLED:-true}"
+      ALLOW_PRIVATE_TARGETS: "${ALLOW_PRIVATE_TARGETS:-false}"
+      ALERT_COOLDOWN_MINUTES: "${ALERT_COOLDOWN_MINUTES:-15}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USERNAME: "${SMTP_USERNAME:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-api-health-monitor@localhost}"
+      SMTP_USE_TLS: "${SMTP_USE_TLS:-true}"
     depends_on:
       db:
         condition: service_healthy

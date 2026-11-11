@@ -9,7 +9,49 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <div class="app-shell">
+  <div class="boot-screen" id="boot-screen" aria-live="polite">
+    <span class="spinner" aria-hidden="true"></span>
+    Loading API Health Monitor...
+  </div>
+
+  <section class="auth-screen" id="auth-screen" hidden>
+    <form class="auth-card" id="auth-form" novalidate>
+      <div class="auth-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" role="img">
+            <path d="M5 17h5l2-6 4 12 3-8 2 2h6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1>API Health Monitor</h1>
+          <p>Sign in to manage endpoints, alerts and check history.</p>
+        </div>
+      </div>
+
+      <h2 id="auth-title">Sign in</h2>
+      <p class="auth-hint" id="auth-hint">Use the account an administrator created for you.</p>
+
+      <label class="field">
+        <span>Email</span>
+        <input name="email" type="email" autocomplete="username" required placeholder="you@example.com">
+      </label>
+      <label class="field" id="auth-name-field" hidden>
+        <span>Name</span>
+        <input name="name" type="text" maxlength="100" autocomplete="name" placeholder="Your name">
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input name="password" type="password" minlength="8" autocomplete="current-password" required placeholder="At least 8 characters">
+      </label>
+
+      <p class="form-error" id="auth-error" role="alert" hidden></p>
+
+      <button class="button button-primary auth-submit" id="auth-submit" type="submit">Sign in</button>
+      <button class="auth-switch" id="auth-switch" type="button">Create an account</button>
+    </form>
+  </section>
+
+  <div class="app-shell" id="app-shell" hidden>
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">
@@ -35,6 +77,8 @@
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Add endpoint
         </button>
+        <span class="user-chip" id="user-chip" hidden></span>
+        <button class="button button-ghost" id="logout-button" type="button" hidden>Sign out</button>
       </div>
     </header>
 
@@ -136,6 +180,40 @@
           <p>Try a different search or status filter.</p>
         </div>
       </section>
+
+      <section class="panel admin-only" id="alerts-panel" aria-labelledby="alerts-heading" hidden>
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Notifications</p>
+            <h2 id="alerts-heading">Alert channels</h2>
+          </div>
+          <button class="button button-ghost" id="add-channel-button" type="button">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Add channel
+          </button>
+        </div>
+        <p class="panel-note" id="alerts-note">Email and webhook destinations that receive a message when an endpoint goes down or recovers.</p>
+        <div class="channel-list" id="channel-list"></div>
+        <div class="empty-state empty-compact" id="channel-empty" hidden>
+          <h3>No alert channels yet</h3>
+          <p>Add an email address or webhook URL to be notified about outages.</p>
+        </div>
+      </section>
+
+      <section class="panel admin-only" id="team-panel" aria-labelledby="team-heading" hidden>
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Access</p>
+            <h2 id="team-heading">Team</h2>
+          </div>
+          <button class="button button-ghost" id="add-user-button" type="button">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Add user
+          </button>
+        </div>
+        <p class="panel-note">Admins manage endpoints, alerts and accounts. Viewers can only look.</p>
+        <div class="user-list" id="user-list"></div>
+      </section>
     </main>
 
     <footer class="footer">
@@ -195,6 +273,13 @@
             <small>Run automatic checks</small>
           </span>
         </label>
+        <label class="field checkbox-field">
+          <input name="alerts_enabled" type="checkbox" checked>
+          <span>
+            Send alerts
+            <small>Notify channels on down and recovery</small>
+          </span>
+        </label>
       </div>
 
       <p class="form-error" id="form-error" role="alert" hidden></p>
@@ -216,9 +301,119 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
     </div>
+    <div class="stats-toolbar">
+      <div class="range-switch" id="stats-range" role="group" aria-label="Statistics range">
+        <button class="range-button is-active" type="button" data-hours="24">24 hours</button>
+        <button class="range-button" type="button" data-hours="168">7 days</button>
+        <button class="range-button" type="button" data-hours="720">30 days</button>
+      </div>
+    </div>
+    <div class="stats-summary" id="stats-summary"></div>
+    <div class="stats-charts">
+      <div class="stats-chart-block">
+        <p class="stats-chart-label">Uptime by bucket</p>
+        <div class="stats-bars" id="uptime-chart"></div>
+      </div>
+      <div class="stats-chart-block">
+        <p class="stats-chart-label">Average response time</p>
+        <div class="stats-bars" id="response-chart"></div>
+      </div>
+    </div>
+    <div class="incident-list" id="incident-list"></div>
+    <p class="section-label">Recent checks</p>
     <div class="history-summary" id="history-summary"></div>
     <div class="history-chart" id="history-chart" aria-hidden="true"></div>
     <div class="history-list" id="history-list"></div>
+  </dialog>
+
+  <dialog class="modal" id="user-dialog">
+    <form id="user-form" novalidate>
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">Account</p>
+          <h2 id="user-dialog-title">Add user</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="user-dialog" aria-label="Close dialog">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="form-grid">
+        <label class="field field-full">
+          <span>Name</span>
+          <input name="name" type="text" maxlength="100" required placeholder="Alex Doe">
+        </label>
+        <label class="field field-full">
+          <span>Email</span>
+          <input name="email" type="email" required placeholder="alex@example.com">
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input name="password" type="password" minlength="8" required placeholder="At least 8 characters">
+        </label>
+        <label class="field">
+          <span>Role</span>
+          <select name="role">
+            <option value="viewer">Viewer</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+      </div>
+
+      <p class="form-error" id="user-error" role="alert" hidden></p>
+
+      <div class="modal-actions">
+        <button class="button button-ghost" type="button" data-close-dialog="user-dialog">Cancel</button>
+        <button class="button button-primary" type="submit" id="user-save-button">Add user</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="channel-dialog">
+    <form id="channel-form" novalidate>
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">Alert destination</p>
+          <h2 id="channel-dialog-title">Add channel</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="channel-dialog" aria-label="Close dialog">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="form-grid">
+        <label class="field field-full">
+          <span>Name</span>
+          <input name="name" type="text" maxlength="100" required placeholder="On-call chat">
+        </label>
+        <label class="field">
+          <span>Type</span>
+          <select name="kind">
+            <option value="webhook">Webhook</option>
+            <option value="email">Email</option>
+          </select>
+        </label>
+        <label class="field checkbox-field">
+          <input name="is_enabled" type="checkbox" checked>
+          <span>
+            Enabled
+            <small>Receive alerts</small>
+          </span>
+        </label>
+        <label class="field field-full">
+          <span>Destination</span>
+          <input name="target" type="text" required placeholder="https://hooks.slack.com/services/...">
+          <small id="channel-target-hint">Slack and Discord webhook URLs work; any URL that accepts JSON is also supported.</small>
+        </label>
+      </div>
+
+      <p class="form-error" id="channel-error" role="alert" hidden></p>
+
+      <div class="modal-actions">
+        <button class="button button-ghost" type="button" data-close-dialog="channel-dialog">Cancel</button>
+        <button class="button button-primary" type="submit" id="channel-save-button">Save channel</button>
+      </div>
+    </form>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

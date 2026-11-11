@@ -3,6 +3,7 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urljoin
 
 import httpx
 from sqlalchemy import delete, func, select
@@ -12,8 +13,12 @@ from sqlalchemy.orm import Session
 from app.api.schemas import EndpointStatusResponse
 from app.db.database import SessionLocal
 from app.db.models import CheckResult, Endpoint
+from app.services import notification_service
+from app.services.url_guard import UnsafeTargetError, validate_target_url
 
 logger = logging.getLogger(__name__)
+
+MAX_REDIRECTS = 5
 
 
 def _utcnow() -> datetime:
@@ -31,7 +36,36 @@ def _as_utc(value: datetime | None) -> datetime | None:
 
 def create_http_client() -> httpx.AsyncClient:
     """Create the HTTP client used for checks (overridable in tests)."""
-    return httpx.AsyncClient(follow_redirects=True)
+    return httpx.AsyncClient(follow_redirects=False)
+
+
+async def _validate_target(url: str) -> None:
+    """Re-check the URL (and every redirect hop) before contacting it."""
+    await asyncio.to_thread(validate_target_url, url)
+
+
+async def _get_following_redirects(
+    endpoint: Endpoint, client: httpx.AsyncClient
+) -> httpx.Response:
+    """Follow redirects manually so each hop is validated against SSRF."""
+    current_url = endpoint.url
+
+    for _ in range(MAX_REDIRECTS + 1):
+        await _validate_target(current_url)
+        response = await client.get(
+            current_url,
+            timeout=endpoint.timeout_seconds,
+            follow_redirects=False,
+        )
+        location = response.headers.get("location")
+        if response.is_redirect and location:
+            current_url = urljoin(str(response.url), location)
+            continue
+        return response
+
+    raise UnsafeTargetError(
+        f"Stopped after {MAX_REDIRECTS} redirects."
+    )
 
 
 async def check_endpoint(
@@ -43,17 +77,14 @@ async def check_endpoint(
     error = None
 
     try:
-        response = await client.get(
-            endpoint.url,
-            timeout=endpoint.timeout_seconds,
-        )
+        response = await _get_following_redirects(endpoint, client)
         status_code = response.status_code
         if status_code != endpoint.expected_status_code:
             error = (
                 f"Expected status {endpoint.expected_status_code}, "
                 f"got {status_code}"
             )
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, UnsafeTargetError) as exc:
         error = f"{type(exc).__name__}: {exc}"
 
     response_time_ms = max(0, round((time.perf_counter() - started) * 1000))
@@ -68,14 +99,31 @@ async def check_endpoint(
     )
 
 
+def _latest_success(
+    db: Session, endpoint_id: int
+) -> bool | None:
+    return db.scalar(
+        select(CheckResult.is_success)
+        .where(CheckResult.endpoint_id == endpoint_id)
+        .order_by(CheckResult.checked_at.desc(), CheckResult.id.desc())
+        .limit(1)
+    )
+
+
 async def perform_check(db: Session, endpoint: Endpoint) -> CheckResult:
-    """Run a check immediately and persist the result."""
+    """Run a check immediately, persist it and alert on a state change."""
+    previous_success = _latest_success(db, endpoint.id)
+
     async with create_http_client() as client:
         result = await check_endpoint(endpoint, client)
 
     db.add(result)
     db.commit()
     db.refresh(result)
+
+    await notification_service.notify_state_change(
+        db, endpoint, result, previous_success
+    )
     return result
 
 
@@ -180,6 +228,9 @@ async def run_due_checks(
                 now,
             )
         ]
+        previous_success = {
+            endpoint.id: _latest_success(db, endpoint.id) for endpoint in due
+        }
 
     if not due:
         return 0
@@ -208,11 +259,25 @@ async def run_due_checks(
         for result in results:
             db.add(result)
         try:
+            db.flush()
+            stored = [
+                (result.endpoint_id, result.id) for result in results
+            ]
             db.commit()
         except IntegrityError:
             db.rollback()
             logger.exception("Could not store health check results")
             return 0
+
+    with session_factory() as db:
+        for endpoint_id, result_id in stored:
+            result = db.get(CheckResult, result_id)
+            endpoint = db.get(Endpoint, endpoint_id)
+            if result is None or endpoint is None:
+                continue
+            await notification_service.notify_state_change(
+                db, endpoint, result, previous_success.get(endpoint_id)
+            )
 
     return len(results)
 

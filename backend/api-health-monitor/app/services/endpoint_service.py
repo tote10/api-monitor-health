@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import EndpointCreate, EndpointUpdate
 from app.db.models import Endpoint
+from app.services.url_guard import validate_target_url
 
 
 class EndpointAlreadyExists(Exception):
@@ -17,6 +18,8 @@ def _normalize_url(url: HttpUrl) -> str:
 
 
 def register_endpoint(db: Session, data: EndpointCreate) -> Endpoint:
+    validate_target_url(_normalize_url(data.url))
+
     endpoint = Endpoint(
         name=data.name,
         url=_normalize_url(data.url),
@@ -24,6 +27,7 @@ def register_endpoint(db: Session, data: EndpointCreate) -> Endpoint:
         timeout_seconds=data.timeout_seconds,
         expected_status_code=data.expected_status_code,
         is_active=data.is_active,
+        alerts_enabled=data.alerts_enabled,
     )
 
     db.add(endpoint)
@@ -63,6 +67,7 @@ def update_endpoint(
 
     if "url" in changes:
         changes["url"] = _normalize_url(changes["url"])
+        validate_target_url(changes["url"])
 
     for field, value in changes.items():
         setattr(endpoint, field, value)

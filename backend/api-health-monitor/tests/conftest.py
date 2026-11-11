@@ -3,6 +3,8 @@ import os
 # Configure the application before importing its modules.
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ["MONITORING_ENABLED"] = "false"
+os.environ["AUTH_ENABLED"] = "false"
+os.environ["SSRF_PROTECTION_ENABLED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient

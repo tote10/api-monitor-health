@@ -8,6 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.routes.auth import router as auth_router
+from app.api.routes.channels import router as channels_router
 from app.api.routes.endpoints import router as endpoints_router
 from app.core.config import settings
 from app.db.database import engine
@@ -88,4 +90,6 @@ def readiness_check():
     }
 
 
+app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
+app.include_router(channels_router, prefix=settings.API_V1_PREFIX)
 app.include_router(endpoints_router, prefix=settings.API_V1_PREFIX)
