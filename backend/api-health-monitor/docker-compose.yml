@@ -6,11 +6,11 @@ services:
     environment:
       POSTGRES_DB: api_health_monitor
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the app .env file}
     volumes:
       - api-health-monitor-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d api_health_monitor"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d api_health_monitor"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -19,12 +19,21 @@ services:
   api:
     build: .
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8000}:8000"
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/api_health_monitor
+      POSTGRES_HOST: db
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the app .env file}
       ENVIRONMENT: production
       DEBUG: "false"
       AUTH_SECURE_COOKIE: ${AUTH_SECURE_COOKIE:-false}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
       MONITORING_ENABLED: "true"
       SCHEDULER_POLL_SECONDS: "5"
       CHECK_HISTORY_RETENTION_DAYS: "30"

@@ -6,6 +6,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     func,
 )
@@ -66,6 +67,9 @@ class Endpoint(Base):
         back_populates="endpoint",
         cascade="all, delete-orphan",
     )
+    alert_deliveries: Mapped[list["AlertDelivery"]] = relationship(
+        cascade="all, delete-orphan",
+    )
 
 
 class CheckResult(Base):
@@ -114,3 +118,20 @@ class LoginSession(Base):
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+
+
+class AlertDelivery(Base):
+    __tablename__ = "alert_deliveries"
+    __table_args__ = (
+        Index("ix_alert_deliveries_pending", "state", "next_attempt_at"),
+        Index("ix_alert_deliveries_endpoint_channel", "endpoint_id", "channel", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    endpoint_id: Mapped[int] = mapped_column(ForeignKey("endpoints.id", ondelete="CASCADE"))
+    channel: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[dict] = mapped_column(JSON)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())

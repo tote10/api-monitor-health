@@ -14,6 +14,7 @@ from app.api.routes.endpoints import router as endpoints_router
 from app.core.auth import authorize_endpoint, require_user, router as auth_router, session_user
 from app.core.config import settings
 from app.db.database import engine, get_db
+from app.services.alert_service import alert_loop, enabled_channels
 from app.services.monitor_service import monitoring_loop
 
 APP_DIR = Path(__file__).resolve().parent / "app"
@@ -21,23 +22,27 @@ APP_DIR = Path(__file__).resolve().parent / "app"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    monitor_task = None
+    tasks = []
     if settings.MONITORING_ENABLED:
-        monitor_task = asyncio.create_task(
+        scheduler = asyncio.create_task(
             monitoring_loop(
                 settings.SCHEDULER_POLL_SECONDS,
                 settings.CHECK_HISTORY_RETENTION_DAYS,
                 settings.CHECK_HISTORY_CLEANUP_INTERVAL_SECONDS,
             )
         )
+        tasks.append(scheduler)
+    if enabled_channels():
+        tasks.append(asyncio.create_task(alert_loop(settings.SCHEDULER_POLL_SECONDS)))
 
     try:
         yield
     finally:
-        if monitor_task is not None:
-            monitor_task.cancel()
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
             with suppress(asyncio.CancelledError):
-                await monitor_task
+                await task
 
 
 app = FastAPI(

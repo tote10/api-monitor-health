@@ -97,7 +97,10 @@ def update_endpoint(
 )
 async def run_endpoint_check(endpoint_id: int, db: Session = Depends(get_db)):
     endpoint = _get_endpoint_or_404(db, endpoint_id)
-    return await monitor_service.perform_check(db, endpoint)
+    try:
+        return await monitor_service.perform_check(db, endpoint)
+    except monitor_service.EndpointRemovedDuringCheck as exc:
+        raise HTTPException(404, "Endpoint was removed during the check") from exc
 
 
 @router.get(

@@ -12,9 +12,14 @@ from sqlalchemy.orm import Session
 from app.api.schemas import EndpointStatusResponse
 from app.db.database import SessionLocal
 from app.db.models import CheckResult, Endpoint
+from app.services.alert_service import save_check_results
 from app.services.monitor_targets import UnsafeMonitorURL, fetch_public_url
 
 logger = logging.getLogger(__name__)
+
+
+class EndpointRemovedDuringCheck(Exception):
+    """The endpoint was removed before its check could be stored."""
 
 
 def _utcnow() -> datetime:
@@ -78,7 +83,8 @@ async def perform_check(db: Session, endpoint: Endpoint) -> CheckResult:
     async with create_http_client() as client:
         result = await check_endpoint(endpoint, client)
 
-    db.add(result)
+    if not save_check_results(db, [result]):
+        raise EndpointRemovedDuringCheck
     db.commit()
     db.refresh(result)
     return result
@@ -210,16 +216,15 @@ async def run_due_checks(
         return 0
 
     with session_factory() as db:
-        for result in results:
-            db.add(result)
         try:
+            saved_count = save_check_results(db, results)
             db.commit()
         except IntegrityError:
             db.rollback()
             logger.exception("Could not store health check results")
             return 0
 
-    return len(results)
+    return saved_count
 
 
 def prune_check_history(
