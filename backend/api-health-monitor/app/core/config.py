@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
+    AUTH_SECURE_COOKIE: bool = False
     MONITORING_ENABLED: bool = True
     SCHEDULER_POLL_SECONDS: float = Field(default=5.0, ge=1.0, le=300.0)
     CHECK_HISTORY_RETENTION_DAYS: int = Field(default=30, ge=0, le=3650)

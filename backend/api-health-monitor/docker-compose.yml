@@ -24,6 +24,7 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/api_health_monitor
       ENVIRONMENT: production
       DEBUG: "false"
+      AUTH_SECURE_COOKIE: ${AUTH_SECURE_COOKIE:-false}
       MONITORING_ENABLED: "true"
       SCHEDULER_POLL_SECONDS: "5"
       CHECK_HISTORY_RETENTION_DAYS: "30"

@@ -8,7 +8,8 @@ every result so you can see status, uptime, response times, and failures.
 - **Scheduler** checks active endpoints when their interval elapses.
 - **History** stores every check with status code, response time, and error detail.
 - **Retention** prunes old results automatically (30 days by default).
-- **REST API** with interactive docs at `/docs`.
+- **Authentication** with sign-in, sign-out, and administrator or read-only viewer access.
+- **REST API** with interactive docs at `/docs` after sign-in.
 - **SQLite or PostgreSQL** storage through SQLAlchemy and Alembic migrations.
 - **Docker Compose** setup with a database healthcheck and migrations on startup.
 
@@ -27,6 +28,7 @@ pip install -r requirements.txt
 cp .env.example .env
 
 alembic upgrade head
+python -m app.create_user admin --role admin
 uvicorn main:app --reload
 ```
 
@@ -58,7 +60,8 @@ and the local SQLite file is not used.
 
 ```bash
 cd backend/api-health-monitor
-docker compose up --build
+docker compose up --build -d
+docker compose exec api python -m app.create_user admin --role admin
 ```
 
 Open <http://localhost:8000> for the dashboard. The first start builds the image,
@@ -82,6 +85,22 @@ system.
 Endpoints added locally live in the SQLite file, so they are not carried over to
 the Docker Compose PostgreSQL volume.
 
+## Accounts and access
+
+Account creation prompts for a password. Run the account creation command after
+applying migrations, including when upgrading an existing installation. Use
+`--role viewer` to create a read-only account.
+
+- Administrators can add, edit, pause, manually check, and delete endpoints.
+- Viewers can see endpoints, uptime, response times, and check history.
+- The dashboard, monitoring API, and interactive docs require sign-in.
+  `/health` and `/ready` remain public for service probes.
+
+API clients can send JSON containing `username` and `password` to
+`POST /auth/login` and retain the session cookie for subsequent requests.
+`GET /auth/me` returns the signed-in account and its role. Sessions expire
+after 12 hours, and `POST /auth/logout` revokes the current session.
+
 ## Configuration
 
 Environment variables are read from the process environment and from `.env`.
@@ -89,6 +108,7 @@ Environment variables are read from the process environment and from `.env`.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | *(required)* | SQLAlchemy URL. `.env.example` uses `sqlite:///./api_health_monitor.db`; for PostgreSQL use `postgresql+psycopg://user:pass@host:5432/db`. |
+| `AUTH_SECURE_COOKIE` | `false` | Set to `true` when serving over HTTPS to mark session cookies Secure. |
 | `MONITORING_ENABLED` | `true` | Start the background scheduler. Manual checks still work when disabled. |
 | `SCHEDULER_POLL_SECONDS` | `5` | How often the scheduler looks for due endpoints. This is not the per-endpoint interval. |
 | `CHECK_HISTORY_RETENTION_DAYS` | `30` | Delete check results older than this. Set to `0` to keep history forever. |
@@ -132,7 +152,11 @@ does not change the endpoint's schedule settings.
 Example:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/endpoints \
+# Paste an administrator's login JSON when prompted, then press Ctrl-D.
+curl --fail-with-body -c monitor.cookies http://localhost:8000/auth/login \
+  -H 'Content-Type: application/json' --data-binary @-
+
+curl -b monitor.cookies -X POST http://localhost:8000/api/v1/endpoints \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "Production API",
@@ -142,13 +166,16 @@ curl -X POST http://localhost:8000/api/v1/endpoints \
     "expected_status_code": 200,
     "is_active": true
   }'
+
+curl -b monitor.cookies -X POST http://localhost:8000/auth/logout
+rm monitor.cookies
 ```
 
 ## Production notes
 
 - Run one API worker, or move scheduling to an external system before scaling out.
-- Put the service behind TLS and an authentication proxy. It does not include
-  user accounts or built-in authentication.
+- Serve the app over HTTPS and set `AUTH_SECURE_COOKIE=true`. If using a
+  reverse proxy, preserve the original `Host` header for same-origin checks.
 - Back up PostgreSQL, and keep `CHECK_HISTORY_RETENTION_DAYS` sized to your
   available storage.
 - Use `/ready` for load balancer and container health checks.

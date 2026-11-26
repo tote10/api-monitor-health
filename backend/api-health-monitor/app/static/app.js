@@ -86,6 +86,9 @@
 
     return fetch(API_PREFIX + path, config)
       .then(function (response) {
+        if (response.status === 401) {
+          window.location.replace("/login");
+        }
         if (response.status === 204) {
           return null;
         }
@@ -658,6 +661,39 @@
       load({ quiet: true });
     }
   }, REFRESH_MS);
+
+  document.getElementById("logout-button").addEventListener("click", async function () {
+    try {
+      var response = await fetch("/auth/logout", {method: "POST"});
+      if (response.ok) {
+        window.location.replace("/login");
+        return;
+      }
+    } catch (error) {
+      console.error(error);
+    }
+    window.alert("Sign-out failed. Try again.");
+  });
+
+  fetch("/auth/me")
+    .then(function (response) {
+      if (response.status === 401) {
+        window.location.replace("/login");
+        return null;
+      }
+      if (!response.ok) {
+        throw new Error("Could not load account permissions.");
+      }
+      return response.json();
+    })
+    .then(function (account) {
+      if (account) {
+        document.body.dataset.role = account.role;
+      }
+    })
+    .catch(function (error) {
+      console.error(error);
+    });
 
   load();
 })();

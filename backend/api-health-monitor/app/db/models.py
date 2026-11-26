@@ -97,3 +97,20 @@ class CheckResult(Base):
     error: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     endpoint: Mapped[Endpoint] = relationship(back_populates="check_results")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(160))
+    role: Mapped[str] = mapped_column(String(16))
+
+
+class LoginSession(Base):
+    __tablename__ = "login_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)

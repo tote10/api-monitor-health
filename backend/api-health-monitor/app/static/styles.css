@@ -1092,3 +1092,21 @@ a:hover {
     transition-duration: 0.01ms !important;
   }
 }
+
+.login-form {
+  display: grid;
+  gap: 12px;
+  max-width: 400px;
+  margin: 8vh auto;
+}
+
+.login-form input {
+  padding: 10px 12px;
+  border: 1px solid #a0a9b8;
+  border-radius: 6px;
+  font: inherit;
+}
+
+body:not([data-role="admin"]) :is(#add-button, #empty-add-button, [data-action="check"], [data-action="edit"], [data-action="toggle"], [data-action="delete"]) {
+  display: none;
+}
