@@ -3,19 +3,22 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 from threading import BoundedSemaphore
+from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models import LoginSession, User
+from app.db.models import AccountInvite, LoginSession, User
 
 COOKIE = "monitor_session"
 SESSION_LIFETIME = timedelta(hours=12)
+INVITE_LIFETIME = timedelta(days=7)
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 PASSWORD_CHECKS = BoundedSemaphore(2)
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -31,6 +34,10 @@ def derive_password(password: str, salt: str) -> str:
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
     return f"{salt}:{derive_password(password, salt)}"
+
+
+def valid_username(username: str) -> bool:
+    return 1 <= len(username) <= 64 and username.isprintable() and username.strip() == username
 
 
 def token_hash(token: str) -> str:
@@ -96,7 +103,7 @@ def login(
     stored = user.password_hash if user else f"{'0' * 32}:{'0' * 64}"
     salt, expected = stored.split(":")
     if not PASSWORD_CHECKS.acquire(blocking=False):
-        raise HTTPException(429, "Too many sign-in requests")
+        raise HTTPException(429, "Too many password requests. Try again shortly.")
     try:
         password_matches = hmac.compare_digest(derive_password(credentials.password, salt), expected)
     finally:
@@ -135,3 +142,76 @@ def logout(request: Request, db: Session = Depends(get_db)):
 def current_user(response: Response, user: User = Depends(require_user)):
     response.headers["Cache-Control"] = "no-store"
     return {"username": user.username, "role": user.role}
+
+
+class InviteRequest(BaseModel):
+    role: Literal["admin", "viewer"] = "viewer"
+
+
+class InviteRegistration(Credentials):
+    password: str = Field(min_length=12, max_length=256)
+    invite_token: str = Field(min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]+$")
+
+    @field_validator("username")
+    @classmethod
+    def check_username(cls, value: str) -> str:
+        if not valid_username(value):
+            raise ValueError("Username must be printable and have no surrounding whitespace")
+        return value
+
+
+@router.post("/invites", status_code=201, dependencies=[Depends(check_request_origin)])
+def create_invite(
+    data: InviteRequest,
+    response: Response,
+    user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    if user.role != "admin":
+        raise HTTPException(403, "Administrator access required")
+    now = datetime.now(timezone.utc)
+    expires_at = now + INVITE_LIFETIME
+    db.execute(delete(AccountInvite).where(AccountInvite.expires_at <= now))
+    token = secrets.token_urlsafe(32)
+    db.add(AccountInvite(token_hash=token_hash(token), role=data.role, expires_at=expires_at))
+    db.commit()
+    response.headers["Cache-Control"] = "no-store"
+    return {"token": token, "expires_at": expires_at, "role": data.role}
+
+
+@router.post("/register", status_code=201, dependencies=[Depends(check_request_origin)])
+def register_with_invite(
+    data: InviteRegistration, response: Response, db: Session = Depends(get_db),
+):
+    digest = token_hash(data.invite_token)
+    invite = db.get(AccountInvite, digest)
+    if invite is None or invite.expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(400, "This invitation is invalid, expired, or already used")
+    role = invite.role
+
+    if not PASSWORD_CHECKS.acquire(blocking=False):
+        raise HTTPException(429, "Too many password requests. Try again shortly.")
+    try:
+        password_hash = hash_password(data.password)
+    finally:
+        PASSWORD_CHECKS.release()
+
+    now = datetime.now(timezone.utc)
+    claimed = db.execute(
+        delete(AccountInvite).where(
+            AccountInvite.token_hash == digest,
+            AccountInvite.expires_at > now,
+        )
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(400, "This invitation is invalid, expired, or already used")
+
+    db.add(User(username=data.username, password_hash=password_hash, role=role))
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Username already exists") from exc
+    response.headers["Cache-Control"] = "no-store"
+    return {"username": data.username, "role": role}

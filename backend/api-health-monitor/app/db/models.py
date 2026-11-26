@@ -135,3 +135,11 @@ class AlertDelivery(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     next_attempt_at: Mapped[datetime] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
+
+
+class AccountInvite(Base):
+    __tablename__ = "account_invites"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)

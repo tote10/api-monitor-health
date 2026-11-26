@@ -91,6 +91,16 @@ applying migrations, including when upgrading an existing installation. Use
 - The dashboard, monitoring API, and interactive docs require sign-in.
   `/health` and `/ready` remain public for service probes.
 
+### Invite someone to register
+
+Sign in as an administrator and open **Invite user**. Choose **Viewer**
+for read-only access or **Administrator** for someone who will manage
+endpoints and invites. Click **Create invite link** and send the link directly
+to the person you want to invite. They choose a username and password, then
+sign in. Each link expires after seven days and can create one account.
+On an existing deployment, apply the latest migration before opening the
+invite dialog. The first admin is created through the command line.
+
 API clients can send JSON containing `username` and `password` to
 `POST /auth/login` and retain the session cookie for subsequent requests.
 `GET /auth/me` returns the signed-in account and its role. Sessions expire

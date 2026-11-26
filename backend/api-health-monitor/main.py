@@ -106,6 +106,11 @@ def login_page():
     return FileResponse(APP_DIR / "templates" / "login.html")
 
 
+@app.get("/register", include_in_schema=False)
+def registration_page():
+    return FileResponse(APP_DIR / "templates" / "register.html", headers={"Cache-Control": "no-store"})
+
+
 @app.get("/docs", include_in_schema=False, dependencies=[Depends(require_user)])
 def docs():
     return get_swagger_ui_html(openapi_url="/openapi.json", title=app.title)
