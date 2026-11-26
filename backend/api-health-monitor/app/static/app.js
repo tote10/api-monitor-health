@@ -40,6 +40,9 @@
     historyTitle: document.getElementById("history-title"),
     historySummary: document.getElementById("history-summary"),
     historyChart: document.getElementById("history-chart"),
+    responseTimeChart: document.getElementById("response-time-chart"),
+    rtAvg: document.getElementById("rt-avg"),
+    uptimeAvg: document.getElementById("uptime-avg"),
     historyList: document.getElementById("history-list"),
     toast: document.getElementById("toast")
   };
@@ -501,6 +504,47 @@
       });
   }
 
+  function renderResponseTimeSvg(checks) {
+    if (!checks.length) return "";
+    var width = 320;
+    var height = 80;
+    var padding = { top: 10, right: 10, bottom: 15, left: 25 };
+    var chartW = width - padding.left - padding.right;
+    var chartH = height - padding.top - padding.bottom;
+
+    var validValues = checks.map(function (c) {
+      return c.response_time_ms === null ? 0 : c.response_time_ms;
+    });
+    var maxVal = Math.max.apply(null, validValues);
+    if (maxVal <= 0) maxVal = 100;
+
+    var points = checks.map(function (c, i) {
+      var x = padding.left + (i / Math.max(1, checks.length - 1)) * chartW;
+      var val = c.response_time_ms === null ? 0 : c.response_time_ms;
+      var y = padding.top + chartH - (val / maxVal) * chartH;
+      return { x: x, y: y, val: val, check: c };
+    });
+
+    var pathD = "M " + points.map(function (p) { return p.x.toFixed(1) + " " + p.y.toFixed(1); }).join(" L ");
+    var areaD = pathD + " L " + (padding.left + chartW) + " " + (padding.top + chartH) + " L " + padding.left + " " + (padding.top + chartH) + " Z";
+
+    var dots = points.map(function (p) {
+      var tooltip = escapeHtml(formatTimestamp(p.check.checked_at) + " · " + p.val + " ms");
+      return '<circle class="sparkline-dot" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="3">' +
+             '<title>' + tooltip + '</title></circle>';
+    }).join("");
+
+    return '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">' +
+      '<line class="sparkline-grid" x1="' + padding.left + '" y1="' + padding.top + '" x2="' + (padding.left + chartW) + '" y2="' + padding.top + '" />' +
+      '<line class="sparkline-grid" x1="' + padding.left + '" y1="' + (padding.top + chartH) + '" x2="' + (padding.left + chartW) + '" y2="' + (padding.top + chartH) + '" />' +
+      '<text x="' + (padding.left - 4) + '" y="' + (padding.top + 4) + '" font-size="9" fill="var(--muted)" text-anchor="end">' + maxVal + '</text>' +
+      '<text x="' + (padding.left - 4) + '" y="' + (padding.top + chartH) + '" font-size="9" fill="var(--muted)" text-anchor="end">0</text>' +
+      '<path class="sparkline-area" d="' + areaD + '" />' +
+      '<path class="sparkline-path" d="' + pathD + '" />' +
+      dots +
+      '</svg>';
+  }
+
   function renderHistory(endpoint, checks) {
     var status = statusFor(endpoint);
     var successCount = checks.filter(function (check) {
@@ -509,6 +553,20 @@
     var uptime = checks.length
       ? ((successCount / checks.length) * 100).toFixed(1) + "%"
       : "—";
+
+    var durations = checks
+      .map(function (check) {
+        return check.response_time_ms;
+      })
+      .filter(function (val) {
+        return typeof val === "number" && val > 0;
+      });
+    var avgRt = durations.length
+      ? Math.round(durations.reduce(function (a, b) { return a + b; }, 0) / durations.length)
+      : 0;
+
+    if (elements.rtAvg) elements.rtAvg.textContent = "Avg: " + (avgRt ? avgRt + " ms" : "—");
+    if (elements.uptimeAvg) elements.uptimeAvg.textContent = "Uptime: " + uptime;
 
     elements.historySummary.innerHTML =
       "<span><strong>" + checks.length + "</strong> recent checks</span>" +
@@ -520,6 +578,7 @@
         : "");
 
     if (checks.length === 0) {
+      if (elements.responseTimeChart) elements.responseTimeChart.innerHTML = '<p class="history-empty" style="font-size:11px">No check data</p>';
       elements.historyChart.innerHTML = "";
       elements.historyList.innerHTML =
         '<p class="history-empty">No checks have run yet. Use "Check now" to run one immediately.</p>';
@@ -527,25 +586,16 @@
     }
 
     var chronological = checks.slice().reverse();
-    var durations = chronological
-      .map(function (check) {
-        return check.response_time_ms === null ? 0 : check.response_time_ms;
-      })
-      .filter(function (value) {
-        return value > 0;
-      });
-    var maxDuration = durations.length ? Math.max.apply(null, durations) : 0;
+    if (elements.responseTimeChart) {
+      elements.responseTimeChart.innerHTML = renderResponseTimeSvg(chronological);
+    }
 
     elements.historyChart.innerHTML = chronological
       .map(function (check) {
-        var duration = check.response_time_ms === null ? 0 : check.response_time_ms;
-        var height = maxDuration
-          ? Math.max(6, Math.round((duration / maxDuration) * 100))
-          : 6;
         return (
-          '<span class="history-bar' + (check.is_success ? "" : " failed") + '" ' +
-            'style="height:' + height + '%" ' +
-            'title="' + escapeHtml(formatTimestamp(check.checked_at) + " · " + (check.is_success ? "passed" : "failed")) + '"></span>'
+          '<span class="uptime-bar' + (check.is_success ? "" : " failed") + '" ' +
+            'style="height:' + (check.is_success ? '80%' : '100%') + '" ' +
+            'title="' + escapeHtml(formatTimestamp(check.checked_at) + " · " + (check.is_success ? "Passed" : (check.error || "Failed"))) + '"></span>'
         );
       })
       .join("");

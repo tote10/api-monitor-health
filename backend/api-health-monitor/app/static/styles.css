@@ -880,6 +880,158 @@ a:hover {
   margin-top: 20px;
 }
 
+.history-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (min-width: 640px) {
+  .history-metrics-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.chart-box {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chart-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.svg-chart-container {
+  height: 90px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.svg-chart-container svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.uptime-bar-container {
+  display: flex;
+  align-items: flex-end;
+  gap: 2.5px;
+  height: 90px;
+  padding-bottom: 4px;
+}
+
+.sparkline-path {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sparkline-area {
+  fill: rgba(37, 99, 235, 0.12);
+  stroke: none;
+}
+
+.sparkline-dot {
+  fill: var(--primary);
+  stroke: var(--surface);
+  stroke-width: 2;
+  transition: r 0.15s ease;
+}
+
+.sparkline-dot:hover {
+  r: 5;
+  cursor: pointer;
+}
+
+.sparkline-grid {
+  stroke: var(--border);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+}
+
+.uptime-bar {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 3px 3px 1px 1px;
+  background: var(--up);
+  opacity: 0.85;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.uptime-bar:hover {
+  opacity: 1;
+  transform: scaleY(1.05);
+  cursor: pointer;
+}
+
+.uptime-bar.failed {
+  background: var(--down);
+}
+
+.card-sparkline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0 2px 0;
+}
+
+.card-sparkline-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.card-sparkline-bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+}
+
+.card-mini-bar {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--up);
+  opacity: 0.8;
+}
+
+.card-mini-bar.down {
+  background: var(--down);
+}
+
 .history-summary {
   display: flex;
   gap: 18px;

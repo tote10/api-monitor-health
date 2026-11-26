@@ -222,9 +222,24 @@
       <h3 id="incident-title">Incidents</h3>
       <div id="incident-list" aria-live="polite"></div>
     </section>
-    <h3 class="history-heading">Recent checks</h3>
+    <div class="history-metrics-grid">
+      <div class="chart-box">
+        <div class="chart-header">
+          <span class="chart-title">Response Time (ms)</span>
+          <span class="chart-badge" id="rt-avg">Avg: —</span>
+        </div>
+        <div class="svg-chart-container" id="response-time-chart"></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-header">
+          <span class="chart-title">Uptime & Status History</span>
+          <span class="chart-badge" id="uptime-avg">Uptime: —</span>
+        </div>
+        <div class="uptime-bar-container" id="history-chart" aria-hidden="true"></div>
+      </div>
+    </div>
+    <h3 class="history-heading">Recent check log</h3>
     <div class="history-summary" id="history-summary"></div>
-    <div class="history-chart" id="history-chart" aria-hidden="true"></div>
     <div class="history-list" id="history-list"></div>
   </dialog>
 
