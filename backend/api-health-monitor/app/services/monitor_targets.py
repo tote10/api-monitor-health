@@ -68,21 +68,21 @@ async def resolve_public_addresses(url: httpx.URL) -> list[str]:
     return list(dict.fromkeys(addresses))
 
 
-async def _get_at_address(
-    client: httpx.AsyncClient, url: httpx.URL, address: str, timeout: float,
-) -> httpx.Response:
+def pinned_request(
+    method: str, url: httpx.URL, address: str, timeout: float, **kwargs,
+) -> httpx.Request:
     # Connect to the address we checked while keeping the original HTTP Host
     # and TLS certificate name. Connections are not reused across requests.
-    request = httpx.Request(
-        "GET",
+    return httpx.Request(
+        method,
         url.copy_with(host=address),
         headers={"Host": url.netloc.decode("ascii")},
         extensions={
             "sni_hostname": url.raw_host.decode("ascii").rstrip("."),
             "timeout": httpx.Timeout(timeout).as_dict(),
         },
+        **kwargs,
     )
-    return await client.send(request, follow_redirects=False)
 
 
 async def fetch_public_url(
@@ -94,7 +94,8 @@ async def fetch_public_url(
             addresses = await resolve_public_addresses(url)
             for index, address in enumerate(addresses):
                 try:
-                    response = await _get_at_address(client, url, address, timeout)
+                    request = pinned_request("GET", url, address, timeout)
+                    response = await client.send(request, follow_redirects=False)
                     break
                 except (httpx.ConnectError, httpx.ConnectTimeout):
                     if index == len(addresses) - 1:

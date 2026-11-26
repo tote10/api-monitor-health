@@ -1,3 +1,15 @@
+# Release scope
+
+The first release includes admin and viewer sign-in, scheduled and manual
+public HTTP checks, endpoint history and uptime, an incident timeline, and
+optional email and webhook alerts. The README covers Docker startup, HTTPS,
+and PostgreSQL backup and restore. The release workflow checks tests,
+migrations, and Docker startup.
+
+The checklist below is the original backlog. Native Slack and Discord
+integrations, custom requests, teams, maintenance scheduling, and separate
+workers remain follow-up work.
+
 User authentication
 
 Login/logout

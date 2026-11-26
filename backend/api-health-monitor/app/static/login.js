@@ -4,6 +4,10 @@ const form = document.getElementById("login-form");
 const submit = form.querySelector("button");
 const errorMessage = document.getElementById("login-error");
 
+if (new URLSearchParams(window.location.search).get("registered") === "1") {
+  document.getElementById("account-created").hidden = false;
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   submit.disabled = true;

@@ -23,6 +23,7 @@
         </div>
       </div>
       <div class="topbar-actions">
+        <button class="button button-ghost" id="invite-button" type="button">Invite user</button>
         <button class="button button-ghost" id="logout-button" type="button">Sign out</button>
         <span class="live-status" id="live-status">
           <span class="live-dot" aria-hidden="true"></span>
@@ -225,6 +226,26 @@
     <div class="history-summary" id="history-summary"></div>
     <div class="history-chart" id="history-chart" aria-hidden="true"></div>
     <div class="history-list" id="history-list"></div>
+  </dialog>
+
+  <dialog class="modal" id="invite-dialog" aria-labelledby="invite-title">
+    <div class="modal-head">
+      <h2 id="invite-title">Invite a user</h2>
+      <button class="icon-button" type="button" data-close-dialog="invite-dialog" aria-label="Close dialog">×</button>
+    </div>
+    <form id="invite-form">
+      <div class="invite-fields">
+        <p>The person you invite will get a private dashboard to monitor their own endpoints.</p>
+        <p>Each link can be used once and expires after seven days.</p>
+        <button class="button button-primary" type="submit">Create invite link</button>
+        <div id="invite-result" hidden>
+          <label for="invite-link">Share this link with the person you invited</label>
+          <input id="invite-link" type="text" readonly>
+          <button id="copy-invite" class="button button-ghost" type="button">Copy link</button>
+        </div>
+        <p id="invite-status" role="status" hidden></p>
+      </div>
+    </form>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

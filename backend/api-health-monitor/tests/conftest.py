@@ -5,6 +5,8 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["DEBUG"] = "false"
 os.environ["AUTH_SECURE_COOKIE"] = "false"
 os.environ["MONITORING_ENABLED"] = "false"
+os.environ["SMTP_HOST"] = ""
+os.environ["ALERT_WEBHOOK_URL"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

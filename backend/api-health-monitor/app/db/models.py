@@ -6,8 +6,10 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -38,11 +40,19 @@ class UTCDateTime(TypeDecorator):
 
 class Endpoint(Base):
     __tablename__ = "endpoints"
+    __table_args__ = (
+        Index(
+            "uq_endpoints_shared_url", "url", unique=True,
+            sqlite_where=text("owner_id IS NULL"), postgresql_where=text("owner_id IS NULL"),
+        ),
+        Index("uq_endpoints_owner_url", "owner_id", "url", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    url: Mapped[str] = mapped_column(
-        String(2048), nullable=False, unique=True
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", name="fk_endpoints_owner_id_users", ondelete="RESTRICT")
     )
 
     interval_seconds: Mapped[int] = mapped_column(
@@ -64,6 +74,9 @@ class Endpoint(Base):
     )
     check_results: Mapped[list["CheckResult"]] = relationship(
         back_populates="endpoint",
+        cascade="all, delete-orphan",
+    )
+    alert_deliveries: Mapped[list["AlertDelivery"]] = relationship(
         cascade="all, delete-orphan",
     )
 
@@ -113,4 +126,29 @@ class LoginSession(Base):
 
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+
+
+class AlertDelivery(Base):
+    __tablename__ = "alert_deliveries"
+    __table_args__ = (
+        Index("ix_alert_deliveries_pending", "state", "next_attempt_at"),
+        Index("ix_alert_deliveries_endpoint_channel", "endpoint_id", "channel", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    endpoint_id: Mapped[int] = mapped_column(ForeignKey("endpoints.id", ondelete="CASCADE"))
+    channel: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[dict] = mapped_column(JSON)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
+
+
+class AccountInvite(Base):
+    __tablename__ = "account_invites"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)

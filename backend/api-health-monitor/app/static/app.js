@@ -708,6 +708,60 @@
     }
   }, REFRESH_MS);
 
+  var inviteDialog = document.getElementById("invite-dialog");
+  var inviteForm = document.getElementById("invite-form");
+  var inviteStatus = document.getElementById("invite-status");
+  var inviteResult = document.getElementById("invite-result");
+  var inviteLink = document.getElementById("invite-link");
+
+  function showInviteStatus(message) {
+    inviteStatus.textContent = message;
+    inviteStatus.hidden = !message;
+  }
+
+  document.getElementById("invite-button").addEventListener("click", function () {
+    inviteForm.reset();
+    inviteLink.value = "";
+    inviteResult.hidden = true;
+    showInviteStatus("");
+    inviteDialog.showModal();
+  });
+
+  inviteForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var submit = inviteForm.querySelector('[type="submit"]');
+    submit.disabled = true;
+    inviteResult.hidden = true;
+    showInviteStatus("");
+    try {
+      var response = await fetch("/auth/invites", {
+        method: "POST"
+      });
+      if (response.status === 401) {
+        window.location.replace("/login");
+        return;
+      }
+      var data = await response.json();
+      if (!response.ok) throw new Error(errorMessage(data, response.status));
+      inviteLink.value = window.location.origin + "/register#invite=" + data.token;
+      inviteResult.hidden = false;
+    } catch (error) {
+      showInviteStatus(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  document.getElementById("copy-invite").addEventListener("click", async function () {
+    try {
+      await navigator.clipboard.writeText(inviteLink.value);
+      showInviteStatus("Invitation link copied.");
+    } catch {
+      inviteLink.select();
+      showInviteStatus("Copy the selected link to share it.");
+    }
+  });
+
   document.getElementById("logout-button").addEventListener("click", async function () {
     try {
       var response = await fetch("/auth/logout", {method: "POST"});

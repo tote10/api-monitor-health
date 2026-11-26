@@ -2,6 +2,7 @@ import os
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -9,8 +10,18 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+if not DATABASE_URL and os.getenv("POSTGRES_HOST") and os.getenv("POSTGRES_PASSWORD"):
+    DATABASE_URL = URL.create(
+        "postgresql+psycopg",
+        username="postgres",
+        password=os.environ["POSTGRES_PASSWORD"],
+        host=os.environ["POSTGRES_HOST"],
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        database="api_health_monitor",
+    ).render_as_string(hide_password=False)
+
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is missing from the environment.")
+    raise RuntimeError("Set DATABASE_URL or configure POSTGRES_HOST and POSTGRES_PASSWORD.")
 
 engine_options = {"pool_pre_ping": True}
 
