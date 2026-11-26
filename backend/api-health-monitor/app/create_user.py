@@ -12,13 +12,19 @@ def main():
     parser = argparse.ArgumentParser(description="Create an API Health Monitor account")
     parser.add_argument("username")
     parser.add_argument("--role", choices=("admin", "viewer"), default="viewer")
+    parser.add_argument(
+        "--practice-password",
+        action="store_true",
+        help="Allow a password as short as 6 characters for local practice",
+    )
     args = parser.parse_args()
     if not 1 <= len(args.username) <= 64 or not args.username.isprintable() or args.username.strip() != args.username:
         parser.error("Username must be 1–64 printable characters with no surrounding whitespace")
 
     password = getpass("Password: ")
-    if not 12 <= len(password) <= 256:
-        parser.error("Password must contain 12–256 characters")
+    minimum_length = 6 if args.practice_password else 12
+    if not minimum_length <= len(password) <= 256:
+        parser.error(f"Password must contain {minimum_length}–256 characters")
     if getpass("Confirm password: ") != password:
         parser.error("Passwords do not match")
 
