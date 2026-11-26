@@ -48,6 +48,8 @@ def save_check_results(db: Session, results: list[CheckResult]) -> int:
         db.add(result)
         db.flush()
         saved_count += 1
+        if endpoint.owner_id is not None:
+            continue
 
         latest = db.scalars(
             select(CheckResult)

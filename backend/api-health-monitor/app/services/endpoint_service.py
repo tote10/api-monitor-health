@@ -16,8 +16,9 @@ def _normalize_url(url: HttpUrl) -> str:
     return str(url).rstrip("/")
 
 
-def register_endpoint(db: Session, data: EndpointCreate) -> Endpoint:
+def register_endpoint(db: Session, data: EndpointCreate, owner_id: int | None) -> Endpoint:
     endpoint = Endpoint(
+        owner_id=owner_id,
         name=data.name,
         url=_normalize_url(data.url),
         interval_seconds=data.interval_seconds,
@@ -40,24 +41,20 @@ def register_endpoint(db: Session, data: EndpointCreate) -> Endpoint:
     return endpoint
 
 
-def list_endpoints(db: Session) -> list[Endpoint]:
-    statement = select(Endpoint).order_by(Endpoint.id)
+def list_endpoints(db: Session, owner_id: int | None) -> list[Endpoint]:
+    statement = select(Endpoint).where(Endpoint.owner_id == owner_id).order_by(Endpoint.id)
     return list(db.scalars(statement).all())
 
 
 def get_endpoint_by_id(
-    db: Session, endpoint_id: int
+    db: Session, endpoint_id: int, owner_id: int | None
 ) -> Endpoint | None:
-    return db.get(Endpoint, endpoint_id)
+    return db.scalar(select(Endpoint).where(Endpoint.id == endpoint_id, Endpoint.owner_id == owner_id))
 
 
 def update_endpoint(
-    db: Session, endpoint_id: int, data: EndpointUpdate
-) -> Endpoint | None:
-    endpoint = db.get(Endpoint, endpoint_id)
-
-    if endpoint is None:
-        return None
+    db: Session, endpoint: Endpoint, data: EndpointUpdate
+) -> Endpoint:
 
     changes = data.model_dump(exclude_unset=True, exclude_none=True)
 
@@ -79,12 +76,6 @@ def update_endpoint(
     return endpoint
 
 
-def delete_endpoint(db: Session, endpoint_id: int) -> bool:
-    endpoint = db.get(Endpoint, endpoint_id)
-
-    if endpoint is None:
-        return False
-
+def delete_endpoint(db: Session, endpoint: Endpoint) -> None:
     db.delete(endpoint)
     db.commit()
-    return True

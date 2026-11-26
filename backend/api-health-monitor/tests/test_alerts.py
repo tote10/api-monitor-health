@@ -138,3 +138,25 @@ def test_webhook_sends_json_without_following_redirects(monkeypatch):
         asyncio.run(alert_service._send_webhook({"event": "endpoint.down"}, 43))
     assert len(seen) == 2
     assert seen[1].url.path == "/alerts"
+
+
+def test_personal_checks_do_not_send_to_shared_alert_destinations(session_factory, monkeypatch):
+    from app.db.models import User
+
+    monkeypatch.setattr(settings, "ALERT_WEBHOOK_URL", SecretStr("https://example.com/alerts"))
+    with session_factory() as db:
+        member = User(username="member", password_hash="unused", role="member")
+        db.add(member)
+        db.flush()
+        endpoint = Endpoint(name="Private", url="https://example.com/", owner_id=member.id)
+        db.add(endpoint)
+        db.flush()
+        result = CheckResult(
+            endpoint_id=endpoint.id,
+            is_success=False,
+            checked_at=datetime.now(timezone.utc),
+        )
+        assert alert_service.save_check_results(db, [result]) == 1
+        db.commit()
+        assert db.get(CheckResult, result.id) is not None
+        assert db.scalars(select(AlertDelivery)).all() == []

@@ -735,9 +735,7 @@
     showInviteStatus("");
     try {
       var response = await fetch("/auth/invites", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({role: document.getElementById("invite-role").value})
+        method: "POST"
       });
       if (response.status === 401) {
         window.location.replace("/login");

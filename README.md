@@ -93,13 +93,16 @@ applying migrations, including when upgrading an existing installation. Use
 
 ### Invite someone to register
 
-Sign in as an administrator and open **Invite user**. Choose **Viewer**
-for read-only access or **Administrator** for someone who will manage
-endpoints and invites. Click **Create invite link** and send the link directly
-to the person you want to invite. They choose a username and password, then
-sign in. Each link expires after seven days and can create one account.
-On an existing deployment, apply the latest migration before opening the
-invite dialog. The first admin is created through the command line.
+Sign in as an administrator, open **Invite user**, and create a link. Send it
+directly to the person you want to invite. They choose a username and
+password, then get an empty private dashboard where they can manage their own
+endpoints and see their results. Every workspace can monitor the same URL.
+Each link expires after seven days and can create one account.
+
+Existing command-line admin and viewer accounts keep access to the shared
+workspace. Outstanding invites now create private accounts. The global
+email and webhook destinations serve the shared workspace. On an existing
+deployment, apply the latest database migration before inviting anyone.
 
 API clients can send JSON containing `username` and `password` to
 `POST /auth/login` and retain the session cookie for subsequent requests.

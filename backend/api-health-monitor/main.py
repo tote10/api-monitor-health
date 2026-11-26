@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.endpoints import router as endpoints_router
-from app.core.auth import authorize_endpoint, require_user, router as auth_router, session_user
+from app.core.auth import require_user, router as auth_router, session_user
 from app.core.config import settings
 from app.db.database import engine, get_db
 from app.services.alert_service import alert_loop, enabled_channels
@@ -127,7 +127,4 @@ def openapi():
 
 
 app.include_router(auth_router)
-app.include_router(
-    endpoints_router, prefix=settings.API_V1_PREFIX,
-    dependencies=[Depends(authorize_endpoint)],
-)
+app.include_router(endpoints_router, prefix=settings.API_V1_PREFIX)

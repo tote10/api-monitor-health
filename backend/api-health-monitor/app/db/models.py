@@ -9,6 +9,7 @@ from sqlalchemy import (
     JSON,
     String,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -39,11 +40,19 @@ class UTCDateTime(TypeDecorator):
 
 class Endpoint(Base):
     __tablename__ = "endpoints"
+    __table_args__ = (
+        Index(
+            "uq_endpoints_shared_url", "url", unique=True,
+            sqlite_where=text("owner_id IS NULL"), postgresql_where=text("owner_id IS NULL"),
+        ),
+        Index("uq_endpoints_owner_url", "owner_id", "url", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    url: Mapped[str] = mapped_column(
-        String(2048), nullable=False, unique=True
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    owner_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", name="fk_endpoints_owner_id_users", ondelete="RESTRICT")
     )
 
     interval_seconds: Mapped[int] = mapped_column(

@@ -3,7 +3,6 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 from threading import BoundedSemaphore
-from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -82,11 +81,15 @@ def require_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
-def authorize_endpoint(request: Request, user: User = Depends(require_user)):
+def authorize_endpoint(
+    request: Request, response: Response, user: User = Depends(require_user),
+) -> User:
+    response.headers["Cache-Control"] = "private, no-store"
     if request.method not in SAFE_METHODS:
         check_request_origin(request)
-        if user.role != "admin":
-            raise HTTPException(403, "Administrator access required")
+        if user.role not in {"admin", "member"}:
+            raise HTTPException(403, "Endpoint write access required")
+    return user
 
 
 class Credentials(BaseModel):
@@ -144,10 +147,6 @@ def current_user(response: Response, user: User = Depends(require_user)):
     return {"username": user.username, "role": user.role}
 
 
-class InviteRequest(BaseModel):
-    role: Literal["admin", "viewer"] = "viewer"
-
-
 class InviteRegistration(Credentials):
     password: str = Field(min_length=12, max_length=256)
     invite_token: str = Field(min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]+$")
@@ -162,7 +161,6 @@ class InviteRegistration(Credentials):
 
 @router.post("/invites", status_code=201, dependencies=[Depends(check_request_origin)])
 def create_invite(
-    data: InviteRequest,
     response: Response,
     user: User = Depends(require_user),
     db: Session = Depends(get_db),
@@ -173,10 +171,10 @@ def create_invite(
     expires_at = now + INVITE_LIFETIME
     db.execute(delete(AccountInvite).where(AccountInvite.expires_at <= now))
     token = secrets.token_urlsafe(32)
-    db.add(AccountInvite(token_hash=token_hash(token), role=data.role, expires_at=expires_at))
+    db.add(AccountInvite(token_hash=token_hash(token), role="member", expires_at=expires_at))
     db.commit()
     response.headers["Cache-Control"] = "no-store"
-    return {"token": token, "expires_at": expires_at, "role": data.role}
+    return {"token": token, "expires_at": expires_at, "role": "member"}
 
 
 @router.post("/register", status_code=201, dependencies=[Depends(check_request_origin)])
@@ -187,7 +185,6 @@ def register_with_invite(
     invite = db.get(AccountInvite, digest)
     if invite is None or invite.expires_at <= datetime.now(timezone.utc):
         raise HTTPException(400, "This invitation is invalid, expired, or already used")
-    role = invite.role
 
     if not PASSWORD_CHECKS.acquire(blocking=False):
         raise HTTPException(429, "Too many password requests. Try again shortly.")
@@ -207,11 +204,11 @@ def register_with_invite(
         db.rollback()
         raise HTTPException(400, "This invitation is invalid, expired, or already used")
 
-    db.add(User(username=data.username, password_hash=password_hash, role=role))
+    db.add(User(username=data.username, password_hash=password_hash, role="member"))
     try:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(409, "Username already exists") from exc
     response.headers["Cache-Control"] = "no-store"
-    return {"username": data.username, "role": role}
+    return {"username": data.username, "role": "member"}
