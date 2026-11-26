@@ -2,7 +2,7 @@ services:
   - type: web
     name: api-health-monitor
     runtime: docker
-    plan: starter
+    plan: free
     rootDir: backend/api-health-monitor
     dockerfilePath: backend/api-health-monitor/Dockerfile
     envVars:
@@ -17,8 +17,5 @@ services:
       - key: MONITORING_ENABLED
         value: true
       - key: DATABASE_URL
-        value: sqlite:////var/data/api_health_monitor.db
-    disk:
-      name: health_monitor_data
-      mountPath: /var/data
-      sizeGB: 1
+        value: sqlite:///./api_health_monitor.db
+
