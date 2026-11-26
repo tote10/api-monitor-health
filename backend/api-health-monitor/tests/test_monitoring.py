@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -6,7 +7,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.db.models import CheckResult
-from app.services import monitor_service
+from app.services import monitor_service, monitor_targets
 
 
 def _handler(request: httpx.Request) -> httpx.Response:
@@ -25,10 +26,12 @@ def mock_http(monkeypatch):
     def factory():
         return httpx.AsyncClient(
             transport=httpx.MockTransport(_handler),
-            follow_redirects=True,
         )
 
     monkeypatch.setattr(monitor_service, "create_http_client", factory)
+    monkeypatch.setattr(
+        monitor_targets, "resolve_public_addresses", AsyncMock(return_value=["93.184.216.34"])
+    )
 
 
 def _create_endpoint(

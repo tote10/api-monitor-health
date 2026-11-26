@@ -7,6 +7,8 @@ every result so you can see status, uptime, response times, and failures.
 - **Dashboard** at `/` for adding, editing, pausing, checking, and deleting endpoints.
 - **Scheduler** checks active endpoints when their interval elapses.
 - **History** stores every check with status code, response time, and error detail.
+- **Incidents** group consecutive failed checks and show the first recorded
+  failure, the recovery check, and the observed duration.
 - **Retention** prunes old results automatically (30 days by default).
 - **Authentication** with sign-in, sign-out, and administrator or read-only viewer access.
 - **REST API** with interactive docs at `/docs` after sign-in.
@@ -123,14 +125,21 @@ Environment variables are read from the process environment and from `.env`.
    (1–60 seconds), expected status code, and active flag.
 2. The scheduler wakes every `SCHEDULER_POLL_SECONDS` and checks active
    endpoints whose last result is older than their interval.
-3. Each check sends one GET request, follows redirects, and records success or
-   failure. A status that differs from the expected one counts as a failure, as
-   does a timeout or connection error.
+3. Each check uses GET and only connects to public HTTP or HTTPS targets.
+   It validates DNS answers and follows redirects under the same rules, up to
+   20 hops. The configured timeout covers the full check. A blocked target,
+   unexpected status, timeout, or connection error counts as a failure.
 4. Results appear in the dashboard, the status endpoint, and the history
    endpoint. Deleting an endpoint also deletes its history.
 5. Old results are pruned in the background according to the retention setting.
 
-URLs are unique, ignoring a trailing slash. A manual check runs immediately and
+URLs are unique, ignoring a trailing slash. The API rejects new or edited URLs
+that contain credentials, local hostnames, or non-public IP literals. DNS names
+are resolved during each check. Previously saved endpoints that violate the
+policy can still be edited, paused, or deleted. Checks connect directly to
+validated addresses and ignore proxy settings from the environment.
+
+A manual check runs immediately and
 does not change the endpoint's schedule settings.
 
 ## API
@@ -148,6 +157,7 @@ does not change the endpoint's schedule settings.
 | `POST` | `/api/v1/endpoints/{id}/check` | Run a check now. |
 | `GET` | `/api/v1/endpoints/{id}/checks?limit=50` | Recent check results, newest first. |
 | `GET` | `/api/v1/endpoints/{id}/status` | Latest result and uptime summary. |
+| `GET` | `/api/v1/endpoints/{id}/incidents?limit=20` | Incident timeline from retained checks, newest first. |
 
 Example:
 

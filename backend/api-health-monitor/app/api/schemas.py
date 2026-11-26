@@ -1,6 +1,21 @@
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field, HttpUrl
+from typing import Annotated, Optional
+
+import httpx
+from pydantic import AfterValidator, BaseModel, Field, HttpUrl
+
+from app.services.monitor_targets import UnsafeMonitorURL, validate_target
+
+
+def validate_endpoint_url(value: HttpUrl) -> HttpUrl:
+    try:
+        validate_target(httpx.URL(str(value)))
+    except httpx.InvalidURL as exc:
+        raise UnsafeMonitorURL("Invalid monitoring URL") from exc
+    return value
+
+
+MonitorURL = Annotated[HttpUrl, AfterValidator(validate_endpoint_url)]
 
 
 class EndpointBase(BaseModel):
@@ -13,12 +28,12 @@ class EndpointBase(BaseModel):
 
 
 class EndpointCreate(EndpointBase):
-    pass
+    url: MonitorURL = Field(..., description="Public HTTP or HTTPS URL to monitor")
 
 
 class EndpointUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    url: Optional[HttpUrl] = None
+    url: Optional[MonitorURL] = None
     interval_seconds: Optional[int] = Field(default=None, ge=10, le=3600)
     timeout_seconds: Optional[int] = Field(default=None, ge=1, le=60)
     expected_status_code: Optional[int] = Field(default=None, ge=100, le=599)
@@ -68,3 +83,11 @@ class EndpointStatusResponse(BaseModel):
     total_checks: int
     successful_checks: int
     uptime_percentage: Optional[float] = None
+
+
+class EndpointIncidentResponse(BaseModel):
+    first_failed_at: datetime
+    recovered_at: datetime | None
+    duration_seconds: int
+    started_within_history: bool
+    first_error: str | None

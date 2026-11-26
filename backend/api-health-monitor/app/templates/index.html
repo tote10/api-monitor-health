@@ -210,13 +210,18 @@
   <dialog class="modal modal-wide" id="history-dialog">
     <div class="modal-head">
       <div>
-        <p class="eyebrow">Check history</p>
+        <p class="eyebrow">Endpoint history</p>
         <h2 id="history-title">Recent checks</h2>
       </div>
       <button class="icon-button" type="button" data-close-dialog="history-dialog" aria-label="Close dialog">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
     </div>
+    <section class="incident-section" aria-labelledby="incident-title">
+      <h3 id="incident-title">Incidents</h3>
+      <div id="incident-list" aria-live="polite"></div>
+    </section>
+    <h3 class="history-heading">Recent checks</h3>
     <div class="history-summary" id="history-summary"></div>
     <div class="history-chart" id="history-chart" aria-hidden="true"></div>
     <div class="history-list" id="history-list"></div>

@@ -726,6 +726,8 @@ a:hover {
 
 .modal form,
 .modal > .modal-head,
+.modal > .incident-section,
+.modal > .history-heading,
 .modal > .history-summary,
 .modal > .history-chart,
 .modal > .history-list {
@@ -1109,4 +1111,36 @@ a:hover {
 
 body:not([data-role="admin"]) :is(#add-button, #empty-add-button, [data-action="check"], [data-action="edit"], [data-action="toggle"], [data-action="delete"]) {
   display: none;
+}
+
+.incident-section {
+  margin-bottom: 20px;
+}
+
+.incident-section h3,
+.history-heading {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+#incident-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.incident-row {
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  border-radius: 8px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+
+.incident-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 4px;
 }

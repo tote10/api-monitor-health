@@ -6,13 +6,14 @@ from sqlalchemy.orm import Session
 from app.api.schemas import (
     CheckResultResponse,
     EndpointCreate,
+    EndpointIncidentResponse,
     EndpointResponse,
     EndpointStatusResponse,
     EndpointUpdate,
 )
 from app.db.database import get_db
 from app.db.models import Endpoint
-from app.services import endpoint_service, monitor_service
+from app.services import endpoint_service, incident_service, monitor_service
 from app.services.endpoint_service import EndpointAlreadyExists
 
 router = APIRouter(prefix="/endpoints", tags=["Endpoints"])
@@ -136,3 +137,13 @@ def delete_endpoint(endpoint_id: int, db: Session = Depends(get_db)):
             detail=f"Endpoint with ID {endpoint_id} not found",
         )
     return None
+
+
+@router.get("/{endpoint_id}/incidents", response_model=list[EndpointIncidentResponse])
+def get_endpoint_incidents(
+    endpoint_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    _get_endpoint_or_404(db, endpoint_id)
+    return incident_service.list_incidents(db, endpoint_id, limit)

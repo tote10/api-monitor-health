@@ -565,18 +565,64 @@
       .join("");
   }
 
+  function incidentDuration(seconds) {
+    var parts = [];
+    var days = Math.floor(seconds / 86400);
+    var hours = Math.floor(seconds / 3600) % 24;
+    var minutes = Math.floor(seconds / 60) % 60;
+    if (days) parts.push(days + "d");
+    if (hours) parts.push(hours + "h");
+    if (minutes) parts.push(minutes + "m");
+    parts.push(seconds % 60 + "s");
+    return parts.join(" ");
+  }
+
+  function renderIncidents(list, incidents) {
+    if (!incidents.length) {
+      list.textContent = "No incidents in retained check history.";
+      return;
+    }
+
+    list.innerHTML = incidents.map(function (incident) {
+      var recovered = Boolean(incident.recovered_at);
+      var start = incident.started_within_history ? "First failed check" : "Earliest recorded failure";
+      return '<article class="incident-row">' +
+        '<div class="incident-heading"><strong>' +
+          (recovered ? "Recovered" : "No recovery recorded") +
+        '</strong><span>' + incidentDuration(incident.duration_seconds) + ' observed</span></div>' +
+        '<div>' + start + ' · ' + escapeHtml(formatTimestamp(incident.first_failed_at)) + '</div>' +
+        (recovered ? '<div>First passing check · ' + escapeHtml(formatTimestamp(incident.recovered_at)) + '</div>' : '') +
+        (incident.first_error ? '<div>' + escapeHtml(incident.first_error) + '</div>' : '') +
+        '</article>';
+    }).join("");
+  }
+
+  var historyRequest = 0;
+
   function openHistory(endpoint) {
+    var request = ++historyRequest;
+    var incidentList = document.getElementById("incident-list");
+    incidentList.textContent = "Loading incidents…";
     elements.historyTitle.textContent = "Checks for " + endpoint.name;
     elements.historySummary.textContent = "Loading check history...";
     elements.historyChart.innerHTML = "";
     elements.historyList.innerHTML = "";
     elements.historyDialog.showModal();
 
-    api("/endpoints/" + endpoint.id + "/checks?limit=50")
-      .then(function (checks) {
-        renderHistory(endpoint, checks);
+    api("/endpoints/" + endpoint.id + "/incidents")
+      .then(function (incidents) {
+        if (request === historyRequest) renderIncidents(incidentList, incidents);
       })
       .catch(function (error) {
+        if (request === historyRequest) incidentList.textContent = error.message;
+      });
+
+    api("/endpoints/" + endpoint.id + "/checks?limit=50")
+      .then(function (checks) {
+        if (request === historyRequest) renderHistory(endpoint, checks);
+      })
+      .catch(function (error) {
+        if (request !== historyRequest) return;
         elements.historySummary.textContent = "";
         elements.historyList.innerHTML =
           '<p class="history-empty">' + escapeHtml(error.message) + "</p>";

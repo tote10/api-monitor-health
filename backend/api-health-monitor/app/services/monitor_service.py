@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas import EndpointStatusResponse
 from app.db.database import SessionLocal
 from app.db.models import CheckResult, Endpoint
+from app.services.monitor_targets import UnsafeMonitorURL, fetch_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,10 @@ def _as_utc(value: datetime | None) -> datetime | None:
 
 def create_http_client() -> httpx.AsyncClient:
     """Create the HTTP client used for checks (overridable in tests)."""
-    return httpx.AsyncClient(follow_redirects=True)
+    return httpx.AsyncClient(
+        trust_env=False,
+        limits=httpx.Limits(max_keepalive_connections=0),
+    )
 
 
 async def check_endpoint(
@@ -43,17 +47,18 @@ async def check_endpoint(
     error = None
 
     try:
-        response = await client.get(
-            endpoint.url,
-            timeout=endpoint.timeout_seconds,
-        )
+        response = await fetch_public_url(client, endpoint.url, endpoint.timeout_seconds)
         status_code = response.status_code
         if status_code != endpoint.expected_status_code:
             error = (
                 f"Expected status {endpoint.expected_status_code}, "
                 f"got {status_code}"
             )
-    except httpx.HTTPError as exc:
+    except TimeoutError:
+        error = f"Check timed out after {endpoint.timeout_seconds} seconds"
+    except UnsafeMonitorURL as exc:
+        error = str(exc)
+    except (httpx.HTTPError, httpx.InvalidURL, OSError) as exc:
         error = f"{type(exc).__name__}: {exc}"
 
     response_time_ms = max(0, round((time.perf_counter() - started) * 1000))
