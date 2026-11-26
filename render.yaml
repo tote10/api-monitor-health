@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: api-health-monitor
+    runtime: docker
+    plan: starter
+    rootDir: backend/api-health-monitor
+    dockerfilePath: backend/api-health-monitor/Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false
+      - key: AUTH_SECURE_COOKIE
+        value: true
+      - key: MONITORING_ENABLED
+        value: true
+      - key: DATABASE_URL
+        value: sqlite:////var/data/api_health_monitor.db
+    disk:
+      name: health_monitor_data
+      mountPath: /var/data
+      sizeGB: 1

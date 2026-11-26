@@ -12,8 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 RUN chmod +x scripts/start.sh \
+    && mkdir -p /var/data \
     && useradd --create-home --shell /usr/sbin/nologin appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app /var/data
 
 USER appuser
 
