@@ -3,7 +3,7 @@ from getpass import getpass
 
 from sqlalchemy.exc import IntegrityError
 
-from app.core.auth import hash_password
+from app.core.auth import hash_password, valid_username
 from app.db.database import SessionLocal
 from app.db.models import User
 
@@ -18,7 +18,7 @@ def main():
         help="Allow a password as short as 6 characters for local practice",
     )
     args = parser.parse_args()
-    if not 1 <= len(args.username) <= 64 or not args.username.isprintable() or args.username.strip() != args.username:
+    if not valid_username(args.username):
         parser.error("Username must be 1–64 printable characters with no surrounding whitespace")
 
     password = getpass("Password: ")

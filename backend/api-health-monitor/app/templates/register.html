@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create an account | API Health Monitor</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/register.js" defer></script>
+</head>
+<body>
+  <main class="content">
+    <form id="register-form" class="login-form" method="post">
+      <h1>Create your account</h1>
+      <p id="invite-missing" hidden>Open the invite link sent by your administrator to create an account.</p>
+      <fieldset id="register-fields" hidden disabled>
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" maxlength="64" required>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="new-password"
+               minlength="12" maxlength="256" aria-describedby="password-hint" required>
+        <small id="password-hint">Use at least 12 characters.</small>
+        <label for="confirmation">Confirm password</label>
+        <input id="confirmation" type="password" autocomplete="new-password" maxlength="256" required>
+        <p id="register-error" role="alert" hidden></p>
+        <button class="button button-primary" type="submit">Create account</button>
+      </fieldset>
+      <a href="/login">Back to sign in</a>
+    </form>
+  </main>
+</body>
+</html>

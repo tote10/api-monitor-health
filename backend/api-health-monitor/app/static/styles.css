@@ -1109,7 +1109,8 @@ a:hover {
   font: inherit;
 }
 
-body:not([data-role="admin"]) :is(#add-button, #empty-add-button, [data-action="check"], [data-action="edit"], [data-action="toggle"], [data-action="delete"]) {
+body:not([data-role="admin"]) #invite-button,
+body:not([data-role="admin"], [data-role="member"]) :is(#add-button, #empty-add-button, [data-action="check"], [data-action="edit"], [data-action="toggle"], [data-action="delete"]) {
   display: none;
 }
 
@@ -1143,4 +1144,27 @@ body:not([data-role="admin"]) :is(#add-button, #empty-add-button, [data-action="
   justify-content: space-between;
   gap: 4px 12px;
   margin-bottom: 4px;
+}
+
+
+.login-form fieldset,
+.invite-fields,
+#invite-result {
+  display: grid;
+  gap: 10px;
+}
+
+.login-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.invite-fields :is(input, select) {
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
 }

@@ -1,4 +1,6 @@
-from pydantic import Field
+from typing import Literal
+
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +17,23 @@ class Settings(BaseSettings):
     CHECK_HISTORY_CLEANUP_INTERVAL_SECONDS: int = Field(
         default=3600, ge=60, le=86400
     )
+
+    ALERT_WEBHOOK_URL: SecretStr | None = None
+    ALERT_EMAIL_TO: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = Field(default=587, ge=1, le=65535)
+    SMTP_FROM: str = ""
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: SecretStr | None = None
+    SMTP_SECURITY: Literal["starttls", "tls", "plain"] = "starttls"
+
+    @model_validator(mode="after")
+    def validate_email_alert_settings(self):
+        if self.SMTP_HOST and not (self.SMTP_FROM and self.ALERT_EMAIL_TO):
+            raise ValueError("Set SMTP_FROM and ALERT_EMAIL_TO when SMTP_HOST is configured")
+        if self.SMTP_HOST and bool(self.SMTP_USERNAME) != bool(self.SMTP_PASSWORD):
+            raise ValueError("Set both SMTP_USERNAME and SMTP_PASSWORD for SMTP sign-in")
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",
