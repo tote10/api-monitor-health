@@ -9,6 +9,6 @@ esac
 
 export DATABASE_URL
 export ENVIRONMENT="${ENVIRONMENT:-production}"
-export DEBUG="${DEBUG:-false}"
+export DEBUG=false
 export AUTH_SECURE_COOKIE="${AUTH_SECURE_COOKIE:-true}"
 exec sh scripts/start.sh
