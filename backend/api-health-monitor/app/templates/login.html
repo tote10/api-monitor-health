@@ -7,10 +7,12 @@
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/login.js" defer></script>
 </head>
-<body>
+<body class="auth-page">
   <main class="content">
     <form id="login-form" class="login-form" method="post">
-      <h1>Sign in to API Health Monitor</h1>
+      <p class="auth-brand">API Health Monitor</p>
+      <h1>Sign in</h1>
+      <p class="auth-description">Open your workspace to check endpoint health and uptime.</p>
       <p id="account-created" role="status" hidden>Account created. Sign in with your new credentials.</p>
       <label for="username">Username</label>
       <input id="username" name="username" autocomplete="username" maxlength="64" required>

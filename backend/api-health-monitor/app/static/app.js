@@ -10,7 +10,9 @@
     loading: false,
     editingId: null,
     search: "",
-    filter: "all"
+    filter: "all",
+    sort: "priority",
+    loaded: false
   };
 
   var elements = {
@@ -26,6 +28,7 @@
     summaryPaused: document.getElementById("summary-paused"),
     search: document.getElementById("search-input"),
     filter: document.getElementById("status-filter"),
+    sort: document.getElementById("sort-endpoints"),
     refresh: document.getElementById("refresh-button"),
     add: document.getElementById("add-button"),
     emptyAdd: document.getElementById("empty-add-button"),
@@ -149,6 +152,44 @@
     pending: "Pending",
     paused: "Paused"
   };
+  var statusPriority = {down: 0, pending: 1, up: 2, paused: 3};
+  var summaryFilters = document.querySelectorAll("[data-summary-filter]");
+  var overviewLegend = document.getElementById("overview-legend");
+  var overviewSegments = document.querySelectorAll("[data-health-segment]");
+  var overviewSync = document.getElementById("overview-sync");
+
+  function renderOverview(counts, total) {
+    var title = document.getElementById("overview-title");
+    var description = document.getElementById("overview-description");
+    if (!total) {
+      title.textContent = "Ready to start monitoring";
+      description.textContent = "Your workspace has no endpoints yet.";
+    } else if (counts.down) {
+      title.textContent = counts.down === 1 ? "1 endpoint is down" : counts.down + " endpoints are down";
+      description.textContent = "Open an affected endpoint’s history to investigate failed checks.";
+    } else if (counts.pending) {
+      title.textContent = "Waiting for check results";
+      description.textContent = "Some endpoints do not have a status yet.";
+    } else if (counts.up) {
+      title.textContent = counts.paused ? "All active endpoints operational" : "All endpoints operational";
+      description.textContent = "The latest check passed for every active endpoint.";
+    } else {
+      title.textContent = "Monitoring is paused";
+      description.textContent = "Resume an endpoint to start collecting checks again.";
+    }
+
+    var items = [];
+    overviewSegments.forEach(function (segment) {
+      var kind = segment.dataset.healthSegment;
+      segment.style.flexGrow = counts[kind];
+      segment.hidden = counts[kind] === 0;
+      var item = document.createElement("span");
+      item.className = "legend-item legend-" + kind;
+      item.textContent = statusLabels[kind] + " " + counts[kind];
+      items.push(item);
+    });
+    overviewLegend.replaceChildren(...items);
+  }
 
   function formatTimeAgo(value) {
     if (!value) {
@@ -270,28 +311,37 @@
   }
 
   function render() {
-    var up = 0;
-    var down = 0;
-    var paused = 0;
+    if (!state.loaded) return;
 
+    var counts = {up: 0, down: 0, paused: 0, pending: 0};
     state.endpoints.forEach(function (endpoint) {
-      var kind = statusClass(endpoint);
-      if (kind === "up") {
-        up += 1;
-      } else if (kind === "down") {
-        down += 1;
-      } else if (kind === "paused") {
-        paused += 1;
-      }
+      counts[statusClass(endpoint)] += 1;
     });
 
-    elements.summaryTotal.textContent = String(state.endpoints.length);
-    elements.summaryUp.textContent = String(up);
-    elements.summaryDown.textContent = String(down);
-    elements.summaryPaused.textContent = String(paused);
+    var total = state.endpoints.length;
+    elements.summaryTotal.textContent = String(total);
+    elements.summaryUp.textContent = String(counts.up);
+    elements.summaryDown.textContent = String(counts.down);
+    elements.summaryPaused.textContent = String(counts.paused);
+    summaryFilters.forEach(function (button) {
+      button.setAttribute("aria-pressed", String(button.dataset.summaryFilter === state.filter));
+    });
+    renderOverview(counts, total);
 
-    var visible = state.endpoints.filter(matchesFilters);
+    var visible = state.endpoints.filter(matchesFilters).sort(function (left, right) {
+      var difference = 0;
+      if (state.sort === "priority") {
+        difference = statusPriority[statusClass(left)] - statusPriority[statusClass(right)];
+      } else if (state.sort === "latency") {
+        difference = (statusFor(right)?.last_response_time_ms ?? -1) -
+          (statusFor(left)?.last_response_time_ms ?? -1);
+      }
+      return difference || left.name.localeCompare(right.name);
+    });
     elements.list.innerHTML = visible.map(renderCard).join("");
+    document.getElementById("results-count").textContent = visible.length === total
+      ? total + (total === 1 ? " endpoint" : " endpoints")
+      : visible.length + " of " + total + " endpoints";
 
     elements.empty.hidden = state.endpoints.length !== 0;
     elements.noResults.hidden = state.endpoints.length === 0 || visible.length !== 0;
@@ -341,11 +391,20 @@
           });
           elements.errorBanner.hidden = true;
           elements.loading.hidden = true;
+          state.loaded = true;
+          overviewSync.textContent = statuses.includes(null)
+            ? "Some statuses unavailable"
+            : "Updated " + new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
           render();
         });
       })
       .catch(function (error) {
         showError(error.message);
+        overviewSync.textContent = "Refresh failed";
+        if (!state.loaded) {
+          document.getElementById("overview-title").textContent = "Could not load service health";
+          document.getElementById("overview-description").textContent = "Refresh to try again.";
+        }
         if (state.endpoints.length === 0) {
           elements.empty.hidden = true;
           elements.noResults.hidden = true;
@@ -705,6 +764,26 @@
     render();
   });
 
+  elements.sort.addEventListener("change", function (event) {
+    state.sort = event.target.value;
+    render();
+  });
+
+  summaryFilters.forEach(function (button) {
+    button.addEventListener("click", function () {
+      state.filter = button.dataset.summaryFilter;
+      elements.filter.value = state.filter;
+      render();
+    });
+  });
+
+  document.getElementById("clear-filters").addEventListener("click", function () {
+    elements.search.value = state.search = "";
+    elements.filter.value = state.filter = "all";
+    render();
+    elements.search.focus();
+  });
+
   elements.endpointForm.addEventListener("submit", submitEndpoint);
 
   elements.list.addEventListener("click", function (event) {
@@ -757,6 +836,24 @@
       load({ quiet: true });
     }
   }, REFRESH_MS);
+
+  var accountMenu = document.querySelector(".account-menu");
+  var accountMenuToggle = accountMenu.querySelector("summary");
+  document.addEventListener("click", function (event) {
+    if (accountMenu.open && !accountMenu.contains(event.target)) accountMenu.open = false;
+  });
+  accountMenu.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && accountMenu.open) {
+      accountMenu.open = false;
+      accountMenuToggle.focus();
+    }
+  });
+
+  function openAccountDialog(dialog) {
+    accountMenu.open = false;
+    accountMenuToggle.focus();
+    dialog.showModal();
+  }
 
   var usersDialog = document.getElementById("users-dialog");
   var usersList = document.getElementById("users-list");
@@ -821,7 +918,7 @@
   }
 
   document.getElementById("users-button").addEventListener("click", function () {
-    usersDialog.showModal();
+    openAccountDialog(usersDialog);
     loadUsers();
   });
 
@@ -841,7 +938,7 @@
     inviteLink.value = "";
     inviteResult.hidden = true;
     showInviteStatus("");
-    inviteDialog.showModal();
+    openAccountDialog(inviteDialog);
   });
 
   inviteForm.addEventListener("submit", async function (event) {
@@ -906,6 +1003,11 @@
     .then(function (account) {
       if (account) {
         document.body.dataset.role = account.role;
+        document.getElementById("account-name").textContent = account.username;
+        var workspace = document.getElementById("workspace-label");
+        workspace.textContent = account.role === "member" ? "Private workspace" : account.role === "admin"
+          ? "Shared workspace · Administrator" : "Shared workspace · Viewer";
+        workspace.hidden = false;
       }
     })
     .catch(function (error) {

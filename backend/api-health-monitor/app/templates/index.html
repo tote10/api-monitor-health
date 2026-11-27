@@ -19,29 +19,50 @@
         </div>
         <div>
           <h1>API Health Monitor</h1>
-          <p>Your services, checked on schedule and summarized in one place.</p>
         </div>
       </div>
       <div class="topbar-actions">
-        <button class="button button-ghost" data-admin-only id="users-button" type="button">Manage users</button>
-        <button class="button button-ghost" data-admin-only id="invite-button" type="button">Invite user</button>
-        <button class="button button-ghost" id="logout-button" type="button">Sign out</button>
-        <span class="live-status" id="live-status">
-          <span class="live-dot" aria-hidden="true"></span>
-          <span id="refresh-label">Auto-refresh is on</span>
-        </span>
-        <button class="button button-ghost" id="refresh-button" type="button">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Refresh
-        </button>
-        <button class="button button-primary" id="add-button" type="button">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          Add endpoint
-        </button>
+        <details class="account-menu">
+          <summary><span id="account-name">Account</span></summary>
+          <div class="account-menu-items">
+            <p id="workspace-label" class="workspace-label" hidden></p>
+            <button data-admin-only id="users-button" type="button">Manage users</button>
+            <button data-admin-only id="invite-button" type="button">Invite user</button>
+            <a data-admin-only href="/docs" target="_blank" rel="noreferrer">API docs</a>
+            <button id="logout-button" type="button">Sign out</button>
+          </div>
+        </details>
       </div>
     </header>
 
     <main class="content">
+      <section class="overview" aria-labelledby="overview-title">
+        <div class="overview-copy">
+          <p class="overview-label">Monitoring overview</p>
+          <h2 id="overview-title">Loading service health…</h2>
+          <p id="overview-description">Fetching the latest results for your workspace.</p>
+          <div class="overview-actions">
+            <button class="button button-primary" id="add-button" type="button">
+              <span aria-hidden="true">+</span> Add endpoint
+            </button>
+            <button class="button overview-refresh" id="refresh-button" type="button">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3v4h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+        <div class="overview-health">
+          <div class="overview-health-head">
+            <span>Endpoint status</span>
+            <span class="overview-sync" id="overview-sync">Awaiting refresh</span>
+          </div>
+          <div class="overview-bar" aria-hidden="true">
+            <span data-health-segment="up"></span><span data-health-segment="down"></span>
+            <span data-health-segment="pending"></span><span data-health-segment="paused"></span>
+          </div>
+          <div class="overview-legend" id="overview-legend"></div>
+        </div>
+      </section>
       <section class="summary-grid" aria-label="Monitoring summary">
         <article class="summary-card">
           <div class="summary-icon summary-icon-total" aria-hidden="true">
@@ -52,6 +73,7 @@
             <p class="summary-value" id="summary-total">0</p>
             <p class="summary-note">registered endpoints</p>
           </div>
+          <button class="summary-filter" data-summary-filter="all" type="button" aria-label="Show all endpoints" aria-pressed="true"></button>
         </article>
         <article class="summary-card">
           <div class="summary-icon summary-icon-up" aria-hidden="true">
@@ -62,6 +84,7 @@
             <p class="summary-value" id="summary-up">0</p>
             <p class="summary-note">last check passed</p>
           </div>
+          <button class="summary-filter" data-summary-filter="up" type="button" aria-label="Show operational endpoints" aria-pressed="false"></button>
         </article>
         <article class="summary-card">
           <div class="summary-icon summary-icon-down" aria-hidden="true">
@@ -72,6 +95,7 @@
             <p class="summary-value" id="summary-down">0</p>
             <p class="summary-note">needs attention</p>
           </div>
+          <button class="summary-filter" data-summary-filter="down" type="button" aria-label="Show down endpoints" aria-pressed="false"></button>
         </article>
         <article class="summary-card">
           <div class="summary-icon summary-icon-paused" aria-hidden="true">
@@ -82,20 +106,29 @@
             <p class="summary-value" id="summary-paused">0</p>
             <p class="summary-note">not being scheduled</p>
           </div>
+          <button class="summary-filter" data-summary-filter="paused" type="button" aria-label="Show paused endpoints" aria-pressed="false"></button>
         </article>
       </section>
 
       <section class="panel" aria-labelledby="endpoints-heading">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Endpoint registry</p>
             <h2 id="endpoints-heading">Monitored services</h2>
+            <p class="results-count" id="results-count"></p>
           </div>
           <div class="toolbar">
             <label class="search-box">
               <span class="visually-hidden">Search endpoints</span>
               <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13.2 13.2L17 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
               <input type="search" id="search-input" placeholder="Search name or URL">
+            </label>
+            <label class="filter-box">
+              <span class="visually-hidden">Sort endpoints</span>
+              <select id="sort-endpoints">
+                <option value="priority">Needs attention first</option>
+                <option value="name">Name A–Z</option>
+                <option value="latency">Slowest response first</option>
+              </select>
             </label>
             <label class="filter-box">
               <span class="visually-hidden">Filter by status</span>
@@ -137,18 +170,11 @@
         <div class="empty-state" id="no-results-state" hidden>
           <h3>No matching endpoints</h3>
           <p>Try a different search or status filter.</p>
+          <button class="button button-ghost" id="clear-filters" type="button">Clear filters</button>
         </div>
       </section>
     </main>
 
-    <footer class="footer">
-      <span>API Health Monitor treats every configured URL as a target and stores each check result.</span>
-      <span class="footer-links" data-admin-only>
-        <a href="/docs" target="_blank" rel="noreferrer">API docs</a>
-        <span aria-hidden="true">·</span>
-        <a href="/ready" target="_blank" rel="noreferrer">Readiness</a>
-      </span>
-    </footer>
   </div>
 
   <dialog class="modal" id="endpoint-dialog">
