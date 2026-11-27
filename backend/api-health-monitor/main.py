@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,11 +12,16 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.routes.agents import router as agents_router
 from app.api.routes.endpoints import router as endpoints_router
+from app.api.routes.heartbeats import router as heartbeats_router
+from app.api.routes.integrations import router as integrations_router
+from app.api.routes.public_status import router as public_status_router
 from app.core.auth import require_admin, router as auth_router, session_user
 from app.core.config import settings
 from app.db.database import engine, get_db
 from app.services.alert_service import alert_loop, enabled_channels
+from app.services.diagnostics import scheduler_diagnostics
 from app.services.monitor_service import monitoring_loop
 
 APP_DIR = Path(__file__).resolve().parent / "app"
@@ -32,7 +39,7 @@ async def lifespan(_: FastAPI):
             )
         )
         tasks.append(scheduler)
-    if enabled_channels():
+    if settings.MONITORING_ENABLED or enabled_channels():
         tasks.append(asyncio.create_task(alert_loop(settings.SCHEDULER_POLL_SECONDS)))
 
     try:
@@ -53,6 +60,18 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_: Request, error: RequestValidationError):
+    # Validation errors must never echo credentials or request options.
+    detail = []
+    for issue in error.errors():
+        location = issue["loc"]
+        if "request_options" in location:
+            location = location[:location.index("request_options") + 1]
+        detail.append({"type": issue["type"], "loc": location, "msg": issue["msg"]})
+    return JSONResponse(status_code=422, content={"detail": detail})
+
 
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
@@ -104,6 +123,12 @@ def readiness_check():
     }
 
 
+@app.get("/operations/diagnostics", dependencies=[Depends(require_admin)])
+def diagnostics(db: Session = Depends(get_db)):
+    payload = scheduler_diagnostics(db)
+    return JSONResponse(jsonable_encoder(payload), headers={"Cache-Control": "private, no-store"})
+
+
 @app.get("/login", include_in_schema=False)
 def login_page():
     return FileResponse(APP_DIR / "templates" / "login.html")
@@ -135,3 +160,7 @@ def openapi():
 
 app.include_router(auth_router)
 app.include_router(endpoints_router, prefix=settings.API_V1_PREFIX)
+app.include_router(heartbeats_router, prefix=settings.API_V1_PREFIX)
+app.include_router(integrations_router, prefix=settings.API_V1_PREFIX)
+app.include_router(public_status_router)
+app.include_router(agents_router, prefix=settings.API_V1_PREFIX)

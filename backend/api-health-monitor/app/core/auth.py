@@ -7,13 +7,14 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models import AccountInvite, Endpoint, LoginSession, User
+from app.services.audit import audit
+from app.db.models import AccountInvite, AlertIntegration, AuditEvent, Endpoint, LoginSession, PrivateAgent, StatusPage, User
 
 COOKIE = "monitor_session"
 SESSION_LIFETIME = timedelta(hours=12)
@@ -198,7 +199,15 @@ def delete_user(
     for endpoint in db.scalars(select(Endpoint).where(Endpoint.owner_id == user_id)):
         db.delete(endpoint)
     db.execute(delete(LoginSession).where(LoginSession.user_id == user_id))
+    db.execute(update(AlertIntegration).where(AlertIntegration.owner_id == user_id)
+               .values(enabled=False, owner_id=-user_id))
+    db.execute(update(PrivateAgent).where(PrivateAgent.owner_id == user_id)
+               .values(token_hash=None, owner_id=-user_id))
+    db.execute(update(AuditEvent).where(AuditEvent.owner_id == user_id).values(owner_id=-user_id))
+    db.execute(update(StatusPage).where(StatusPage.scope_key == f"user:{user_id}")
+               .values(enabled=False, scope_key=f"closed:{secrets.token_hex(16)}"))
     db.flush()
+    audit(db, admin.username, None, "account.deleted", user_id)
     db.delete(account)
     db.commit()
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
@@ -219,7 +228,7 @@ class InviteRegistration(Credentials):
 @router.post("/invites", status_code=201, dependencies=[Depends(check_request_origin)])
 def create_invite(
     response: Response,
-    _: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
@@ -227,6 +236,7 @@ def create_invite(
     db.execute(delete(AccountInvite).where(AccountInvite.expires_at <= now))
     token = secrets.token_urlsafe(32)
     db.add(AccountInvite(token_hash=token_hash(token), role="member", expires_at=expires_at))
+    audit(db, admin.username, None, "invite.created")
     db.commit()
     response.headers["Cache-Control"] = "no-store"
     return {"token": token, "expires_at": expires_at, "role": "member"}
@@ -260,6 +270,7 @@ def register_with_invite(
         raise HTTPException(400, "This invitation is invalid, expired, or already used")
 
     db.add(User(username=data.username, password_hash=password_hash, role="member"))
+    audit(db, data.username, None, "account.registered")
     try:
         db.commit()
     except IntegrityError as exc:

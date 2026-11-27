@@ -12,6 +12,7 @@
     search: "",
     filter: "all",
     sort: "priority",
+    group: "",
     loaded: false
   };
 
@@ -29,6 +30,7 @@
     search: document.getElementById("search-input"),
     filter: document.getElementById("status-filter"),
     sort: document.getElementById("sort-endpoints"),
+    group: document.getElementById("group-filter"),
     refresh: document.getElementById("refresh-button"),
     add: document.getElementById("add-button"),
     emptyAdd: document.getElementById("empty-add-button"),
@@ -149,7 +151,7 @@
   var statusLabels = {
     up: "Operational",
     down: "Down",
-    pending: "Pending",
+    pending: "Unknown",
     paused: "Paused"
   };
   var statusPriority = {down: 0, pending: 1, up: 2, paused: 3};
@@ -257,6 +259,8 @@
     var kind = statusClass(endpoint);
     var lastChecked = status ? status.last_checked_at : null;
     var error = status ? status.last_error : null;
+    var heartbeat = endpoint.kind === "heartbeat";
+    var privateAgent = endpoint.kind === "agent";
     var activeLabel = endpoint.is_active ? "Pause" : "Resume";
     var uptime = status ? formatUptime(status.uptime_percentage) : "—";
     var checkCount = status ? status.total_checks : 0;
@@ -268,16 +272,24 @@
             '<span class="status-dot ' + kind + '" aria-hidden="true"></span>' +
             "<div>" +
               '<h3 class="endpoint-name">' + escapeHtml(endpoint.name) + "</h3>" +
-              '<a class="endpoint-url" href="' + escapeHtml(endpoint.url) + '" target="_blank" rel="noreferrer noopener" title="' + escapeHtml(endpoint.url) + '">' +
-                escapeHtml(endpoint.url) +
-              "</a>" +
+              (heartbeat
+                ? '<span class="endpoint-url">Heartbeat · ' + (endpoint.last_heartbeat_at
+                  ? 'last check-in ' + formatTimeAgo(endpoint.last_heartbeat_at) : 'awaiting first check-in') + '</span>'
+                : privateAgent ? '<span class="endpoint-url">Private agent · ' + escapeHtml(endpoint.agent_target) + '</span>'
+                : '<a class="endpoint-url" href="' + escapeHtml(endpoint.url) + '" target="_blank" rel="noreferrer noopener" title="' +
+                  escapeHtml(endpoint.url) + '">' + escapeHtml(endpoint.url) + '</a>') +
             "</div>" +
           "</div>" +
-          '<span class="badge badge-' + kind + '">' + statusLabels[kind] + "</span>" +
+          '<span class="badge badge-' + kind + '">' + (kind === "pending" && status?.agent_offline ? "Agent offline" :
+            status?.is_stale && kind === "pending" ? "Stale" : statusLabels[kind]) + "</span>" +
         "</div>" +
+        ((endpoint.service_group || endpoint.tags.length) ? '<div class="monitor-tags">' +
+          [endpoint.service_group, ...endpoint.tags].filter(Boolean).map(function (tag) {
+            return '<span>' + escapeHtml(tag) + '</span>';
+          }).join("") + '</div>' : "") +
         '<div class="card-metrics">' +
           '<div><span class="metric-label">Last check</span><span class="metric-value" title="' + escapeHtml(formatTimestamp(lastChecked)) + '">' + formatTimeAgo(lastChecked) + "</span></div>" +
-          '<div><span class="metric-label">Response</span><span class="metric-value">' + formatResponseTime(status ? status.last_response_time_ms : null) + "</span></div>" +
+          '<div><span class="metric-label">Response</span><span class="metric-value">' + formatResponseTime(status ? status.last_response_time_ms : null) + (status?.is_slow ? " · Slow" : "") + "</span></div>" +
           '<div><span class="metric-label">Uptime</span><span class="metric-value" title="' + checkCount + ' checks">' + uptime + "</span></div>" +
           '<div><span class="metric-label">Schedule</span><span class="metric-value">' + formatInterval(endpoint.interval_seconds) + "</span></div>" +
         "</div>" +
@@ -285,9 +297,10 @@
           ? '<div class="card-error">' + warningIcon() + "<span>" + escapeHtml(error) + "</span></div>"
           : "") +
         '<div class="card-actions">' +
-          '<button class="action-button" type="button" data-action="check" data-id="' + endpoint.id + '">Check now</button>' +
+          (heartbeat || privateAgent ? "" : '<button class="action-button" type="button" data-action="check" data-id="' + endpoint.id + '">Check now</button>') +
           '<button class="action-button" type="button" data-action="history" data-id="' + endpoint.id + '">History</button>' +
           '<button class="action-button" type="button" data-action="edit" data-id="' + endpoint.id + '">Edit</button>' +
+          '<button class="action-button" type="button" data-action="maintenance" data-id="' + endpoint.id + '">Maintenance</button>' +
           '<span class="action-spacer"></span>' +
           '<button class="action-button" type="button" data-action="toggle" data-id="' + endpoint.id + '">' + activeLabel + "</button>" +
           '<button class="action-button danger" type="button" data-action="delete" data-id="' + endpoint.id + '">Delete</button>' +
@@ -297,9 +310,10 @@
   }
 
   function matchesFilters(endpoint) {
+    if (state.group && endpoint.service_group !== state.group) return false;
     var query = state.search.trim().toLowerCase();
     if (query) {
-      var haystack = (endpoint.name + " " + endpoint.url).toLowerCase();
+      var haystack = [endpoint.name, endpoint.url, endpoint.service_group, ...endpoint.tags].join(" ").toLowerCase();
       if (haystack.indexOf(query) === -1) {
         return false;
       }
@@ -373,30 +387,26 @@
       elements.noResults.hidden = true;
     }
 
-    return api("/endpoints")
-      .then(function (endpoints) {
-        return Promise.all(
-          endpoints.map(function (endpoint) {
-            return api("/endpoints/" + endpoint.id + "/status").catch(function () {
-              return null;
-            });
-          })
-        ).then(function (statuses) {
-          state.endpoints = endpoints;
-          state.statuses = new Map();
-          endpoints.forEach(function (endpoint, index) {
-            if (statuses[index]) {
-              state.statuses.set(endpoint.id, statuses[index]);
-            }
-          });
-          elements.errorBanner.hidden = true;
-          elements.loading.hidden = true;
-          state.loaded = true;
-          overviewSync.textContent = statuses.includes(null)
-            ? "Some statuses unavailable"
-            : "Updated " + new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
-          render();
-        });
+    return api("/endpoints/operations/overview")
+      .then(function (data) {
+        state.endpoints = data.monitors.map(function (item) { return item.endpoint; });
+        var groups = [...new Set(state.endpoints.map(function (endpoint) { return endpoint.service_group; }).filter(Boolean))].sort();
+        elements.group.replaceChildren(new Option("All groups", ""), ...groups.map(function (group) {
+          return new Option(group, group);
+        }));
+        if (!groups.includes(state.group)) state.group = "";
+        elements.group.value = state.group;
+        state.statuses = new Map(data.monitors.map(function (item) {
+          return [item.endpoint.id, item.status];
+        }));
+        elements.errorBanner.hidden = true;
+        elements.loading.hidden = true;
+        state.loaded = true;
+        overviewSync.textContent = "Updated " + new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+        render();
+        window.monitorOperations.refreshIncidents();
+        window.monitorOperations.renderRecentFailures(data.recent_failures);
+        window.monitorOperations.renderWorkspaceTrends(data.trends, data.maintenance);
       })
       .catch(function (error) {
         showError(error.message);
@@ -419,6 +429,16 @@
   function openEndpointDialog(endpoint) {
     state.editingId = endpoint ? endpoint.id : null;
     elements.endpointForm.reset();
+    var fields = elements.endpointForm.elements;
+    var privateAgent = endpoint?.kind === "agent";
+    for (var name of ["url", "method", "request_options", "clear_request_options"]) {
+      fields[name].disabled = privateAgent;
+      fields[name].closest("label").hidden = privateAgent;
+    }
+    document.getElementById("request-option-hint").hidden = privateAgent;
+    document.getElementById("request-option-hint").textContent = endpoint?.has_request_options
+      ? "Stored options are hidden. Leave blank to keep them, or enter JSON to replace them."
+      : "Optional. May include headers, body, and response text to match.";
     elements.formError.hidden = true;
 
     if (endpoint) {
@@ -430,7 +450,19 @@
       elements.endpointForm.elements.interval_seconds.value = endpoint.interval_seconds;
       elements.endpointForm.elements.timeout_seconds.value = endpoint.timeout_seconds;
       elements.endpointForm.elements.expected_status_code.value = endpoint.expected_status_code;
-      elements.endpointForm.elements.is_active.checked = endpoint.is_active;
+      fields.is_active.checked = endpoint.is_active;
+      fields.method.value = endpoint.method;
+      fields.expected_status_codes.value = endpoint.expected_status_codes?.join(", ") || "";
+      fields.latency_budget_ms.value = endpoint.latency_budget_ms ?? "";
+      fields.failure_threshold.value = endpoint.failure_threshold;
+      fields.slo_target_percentage.value = endpoint.slo_target_percentage ?? "";
+      fields.slo_window_hours.value = endpoint.slo_window_hours;
+      fields.service_group.value = endpoint.service_group || "";
+      fields.tags.value = endpoint.tags.join(", ");
+      fields.severity.value = endpoint.severity;
+      fields.public_label.value = endpoint.public_label || "";
+      fields.retention_days.value = endpoint.retention_days ?? "";
+      fields.recovery_threshold.value = endpoint.recovery_threshold;
     } else {
       elements.dialogTitle.textContent = "Add endpoint";
       elements.dialogEyebrow.textContent = "New target";
@@ -482,9 +514,38 @@
       interval_seconds: Number(form.elements.interval_seconds.value),
       timeout_seconds: Number(form.elements.timeout_seconds.value),
       expected_status_code: Number(form.elements.expected_status_code.value),
+      method: form.elements.method.value,
+      expected_status_codes: form.elements.expected_status_codes.value.trim()
+        ? form.elements.expected_status_codes.value.split(",").map(Number) : null,
+      latency_budget_ms: Number(form.elements.latency_budget_ms.value) || null,
+      failure_threshold: Number(form.elements.failure_threshold.value) || 1,
+      slo_target_percentage: Number(form.elements.slo_target_percentage.value) || null,
+      slo_window_hours: Number(form.elements.slo_window_hours.value) || 720,
+      service_group: form.elements.service_group.value.trim() || null,
+      tags: [...new Set(form.elements.tags.value.split(",").map(function (value) { return value.trim(); }).filter(Boolean))],
+      severity: form.elements.severity.value,
+      public_label: form.elements.public_label.value.trim() || null,
+      retention_days: form.elements.retention_days.value === "" ? null : Number(form.elements.retention_days.value),
+      recovery_threshold: Number(form.elements.recovery_threshold.value) || 1,
       is_active: form.elements.is_active.checked
     };
 
+    try {
+      if (form.elements.clear_request_options.checked) {
+        payload.request_options = null;
+      } else if (form.elements.request_options.value.trim()) {
+        payload.request_options = JSON.parse(form.elements.request_options.value);
+      }
+    } catch {
+      elements.formError.textContent = "Request options must contain valid JSON.";
+      elements.formError.hidden = false;
+      return;
+    }
+
+    if (form.elements.url.disabled) {
+      delete payload.url;
+      delete payload.method;
+    }
     var editingId = state.editingId;
     elements.saveButton.disabled = true;
     elements.saveButton.textContent = "Saving...";
@@ -563,7 +624,7 @@
       });
   }
 
-  function renderResponseTimeSvg(checks) {
+  function renderResponseTimeSvg(checks, deployments) {
     if (!checks.length) return "";
     var width = 320;
     var height = 80;
@@ -577,8 +638,13 @@
     var maxVal = Math.max.apply(null, validValues);
     if (maxVal <= 0) maxVal = 100;
 
-    var points = checks.map(function (c, i) {
-      var x = padding.left + (i / Math.max(1, checks.length - 1)) * chartW;
+    var first = Date.parse(checks[0].checked_at);
+    var last = Date.parse(checks.at(-1).checked_at);
+    function xAt(timestamp) {
+      return padding.left + (timestamp - first) / Math.max(1, last - first) * chartW;
+    }
+    var points = checks.map(function (c) {
+      var x = xAt(Date.parse(c.checked_at));
       var val = c.response_time_ms === null ? 0 : c.response_time_ms;
       var y = padding.top + chartH - (val / maxVal) * chartH;
       return { x: x, y: y, val: val, check: c };
@@ -593,6 +659,15 @@
              '<title>' + tooltip + '</title></circle>';
     }).join("");
 
+    var markers = deployments.filter(function (deployment) {
+      var at = Date.parse(deployment.deployed_at);
+      return at >= first && at <= last;
+    }).map(function (deployment) {
+      var x = xAt(Date.parse(deployment.deployed_at)).toFixed(1);
+      return '<line class="deployment-line" x1="' + x + '" x2="' + x +
+        '" y1="' + padding.top + '" y2="' + (padding.top + chartH) + '"><title>' +
+        escapeHtml(deployment.label + " · " + formatTimestamp(deployment.deployed_at)) + '</title></line>';
+    }).join("");
     return '<svg viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">' +
       '<line class="sparkline-grid" x1="' + padding.left + '" y1="' + padding.top + '" x2="' + (padding.left + chartW) + '" y2="' + padding.top + '" />' +
       '<line class="sparkline-grid" x1="' + padding.left + '" y1="' + (padding.top + chartH) + '" x2="' + (padding.left + chartW) + '" y2="' + (padding.top + chartH) + '" />' +
@@ -600,11 +675,11 @@
       '<text x="' + (padding.left - 4) + '" y="' + (padding.top + chartH) + '" font-size="9" fill="var(--muted)" text-anchor="end">0</text>' +
       '<path class="sparkline-area" d="' + areaD + '" />' +
       '<path class="sparkline-path" d="' + pathD + '" />' +
-      dots +
+      dots + markers +
       '</svg>';
   }
 
-  function renderHistory(endpoint, checks) {
+  function renderHistory(endpoint, checks, deployments) {
     var status = statusFor(endpoint);
     var successCount = checks.filter(function (check) {
       return check.is_success;
@@ -646,7 +721,7 @@
 
     var chronological = checks.slice().reverse();
     if (elements.responseTimeChart) {
-      elements.responseTimeChart.innerHTML = renderResponseTimeSvg(chronological);
+      elements.responseTimeChart.innerHTML = renderResponseTimeSvg(chronological.filter(function (check) { return check.response_time_ms !== null; }), deployments);
     }
 
     elements.historyChart.innerHTML = chronological
@@ -707,9 +782,53 @@
   }
 
   var historyRequest = 0;
+  var metricsRequest = 0;
+  var historyEndpoint;
+  var historyRange = document.getElementById("history-range");
+
+  async function loadRangeMetrics() {
+    var request = ++metricsRequest;
+    var output = document.getElementById("range-metrics");
+    output.textContent = "Loading metrics…";
+    try {
+      var metrics = await api("/endpoints/" + historyEndpoint.id + "/metrics?hours=" + historyRange.value);
+      if (request !== metricsRequest) return;
+      output.textContent = metrics.total_checks
+        ? "Availability " + formatUptime(metrics.uptime_percentage) +
+          " · " + metrics.total_checks + " checks · p50 " + formatResponseTime(metrics.p50_ms) +
+          " · p95 " + formatResponseTime(metrics.p95_ms) + " · p99 " + formatResponseTime(metrics.p99_ms)
+        : "Unknown · no checks in this range.";
+    } catch (error) {
+      if (request === metricsRequest) output.textContent = error.message;
+    }
+  }
+
+  historyRange.addEventListener("change", loadRangeMetrics);
 
   function openHistory(endpoint) {
     var request = ++historyRequest;
+    historyEndpoint = endpoint;
+    var expiry = statusFor(endpoint)?.certificate_expires_at;
+    document.getElementById("certificate-expiry").textContent = expiry
+      ? "TLS certificate expires " + formatTimestamp(expiry) : "TLS certificate expiry unavailable.";
+    var historyPath = "/endpoints/" + endpoint.id;
+    document.getElementById("export-checks").href = API_PREFIX + historyPath + "/checks.csv";
+    document.getElementById("export-incidents").href = API_PREFIX + historyPath + "/incidents.csv";
+    var reliabilityOutput = document.getElementById("reliability-metrics");
+    reliabilityOutput.textContent = "";
+    if (endpoint.slo_target_percentage !== null) {
+      api(historyPath + "/reliability").then(function (data) {
+        if (request !== historyRequest) return;
+        reliabilityOutput.textContent = "SLO " + data.target_percentage + "% over " + data.window_hours + " hours · " +
+          (data.target_met === null ? "No observations" :
+            (data.target_met ? "On target" : "Below target") + " · " +
+            Number(data.remaining_error_budget).toFixed(2) + " checks of error budget remaining · " +
+            data.maintenance_checks + " checks during maintenance");
+      }).catch(function (error) {
+        if (request === historyRequest) reliabilityOutput.textContent = error.message;
+      });
+    }
+    loadRangeMetrics();
     var incidentList = document.getElementById("incident-list");
     incidentList.textContent = "Loading incidents…";
     elements.historyTitle.textContent = "Checks for " + endpoint.name;
@@ -726,9 +845,27 @@
         if (request === historyRequest) incidentList.textContent = error.message;
       });
 
-    api("/endpoints/" + endpoint.id + "/checks?limit=50")
-      .then(function (checks) {
-        if (request === historyRequest) renderHistory(endpoint, checks);
+    document.getElementById("chart-deployments").textContent = "";
+    Promise.all([
+      api("/endpoints/" + endpoint.id + "/checks?limit=50"),
+      api("/endpoints/" + endpoint.id + "/deployments").catch(function () { return []; })
+    ]).then(function ([checks, deployments]) {
+        if (request === historyRequest) {
+          renderHistory(endpoint, checks, deployments);
+          if (checks.length) {
+            var first = Date.parse(checks.at(-1).checked_at);
+            var last = Date.parse(checks[0].checked_at);
+            var markers = deployments.filter(function (marker) {
+              var at = Date.parse(marker.deployed_at);
+              return at >= first && at <= last;
+            });
+            document.getElementById("chart-deployments").textContent = markers.length
+              ? "Deployments in chart: " + markers.map(function (marker) {
+                return marker.label + " · " + formatTimestamp(marker.deployed_at);
+              }).join(" | ")
+              : "";
+          }
+        }
       })
       .catch(function (error) {
         if (request !== historyRequest) return;
@@ -764,6 +901,11 @@
     render();
   });
 
+  elements.group.addEventListener("change", function (event) {
+    state.group = event.target.value;
+    render();
+  });
+
   elements.sort.addEventListener("change", function (event) {
     state.sort = event.target.value;
     render();
@@ -780,11 +922,15 @@
   document.getElementById("clear-filters").addEventListener("click", function () {
     elements.search.value = state.search = "";
     elements.filter.value = state.filter = "all";
+    elements.group.value = state.group = "";
     render();
     elements.search.focus();
   });
 
   elements.endpointForm.addEventListener("submit", submitEndpoint);
+  elements.endpointDialog.addEventListener("close", function () {
+    elements.endpointForm.elements.request_options.value = "";
+  });
 
   elements.list.addEventListener("click", function (event) {
     var button = event.target.closest("[data-action]");
@@ -802,8 +948,11 @@
       runCheck(endpoint, button);
     } else if (button.dataset.action === "history") {
       openHistory(endpoint);
+    } else if (button.dataset.action === "maintenance") {
+      window.monitorOperations.openMaintenance(endpoint);
     } else if (button.dataset.action === "edit") {
-      openEndpointDialog(endpoint);
+      if (endpoint.kind === "heartbeat") window.heartbeatUI.open(endpoint, load);
+      else openEndpointDialog(endpoint);
     } else if (button.dataset.action === "toggle") {
       toggleEndpoint(endpoint, button);
     } else if (button.dataset.action === "delete") {
@@ -854,6 +1003,49 @@
     accountMenuToggle.focus();
     dialog.showModal();
   }
+
+  document.getElementById("agents-button").addEventListener("click", function () {
+    openAccountDialog(document.getElementById("agents-dialog"));
+    window.agentUI.open(load);
+  });
+
+  document.getElementById("integrations-button").addEventListener("click", function () {
+    openAccountDialog(document.getElementById("integrations-dialog"));
+    window.workspaceSettings.openIntegrations(state.endpoints);
+  });
+
+  document.getElementById("status-settings-button").addEventListener("click", function () {
+    openAccountDialog(document.getElementById("status-settings-dialog"));
+    window.workspaceSettings.openStatus();
+  });
+
+  document.getElementById("diagnostics-button").addEventListener("click", async function () {
+    var content = document.getElementById("diagnostics-content");
+    content.textContent = "Loading diagnostics…";
+    openAccountDialog(document.getElementById("diagnostics-dialog"));
+    try {
+      var response = await fetch("/operations/diagnostics");
+      if (!response.ok) throw new Error("Could not load diagnostics.");
+      var data = await response.json();
+      var lines = [
+        data.scheduler_enabled ? "Scheduler enabled" : "Scheduler disabled",
+        data.queued_checks + " queued checks · " + data.overdue_monitors + " overdue monitors",
+        "Maximum lag " + data.max_lag_seconds + " s · " + data.estimated_missed_checks + " estimated missed checks",
+        data.pending_alerts + " pending alerts · " + data.failed_alerts + " failed alerts"
+      ];
+      lines.push(...data.workers.map(function (worker) {
+        return "Worker " + worker.id.slice(0, 8) + " · " + worker.state + " · " + formatTimestamp(worker.last_poll_at);
+      }));
+      if (!data.workers.length) lines.push("No recent scheduler workers.");
+      content.replaceChildren(...lines.map(function (line) {
+        var item = document.createElement("p");
+        item.textContent = line;
+        return item;
+      }));
+    } catch (error) {
+      content.textContent = error.message;
+    }
+  });
 
   var usersDialog = document.getElementById("users-dialog");
   var usersList = document.getElementById("users-list");
@@ -1014,5 +1206,12 @@
       console.error(error);
     });
 
+  document.getElementById("add-heartbeat").addEventListener("click", function () {
+    window.heartbeatUI.open(null, load);
+  });
   load();
+  var route = new URLSearchParams(window.location.search);
+  if (/^\d+$/.test(route.get("endpoint")) && /^\d+$/.test(route.get("incident"))) {
+    window.monitorOperations.openIncident(route.get("endpoint"), route.get("incident"));
+  }
 })();

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Service status</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/public-status.js" defer></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand"><h1 id="public-title">Service status</h1></div>
+    </header>
+    <p id="public-error" role="status">Loading service status…</p>
+    <section class="panel"><h2>Services</h2><ul id="public-services" class="account-list"></ul></section>
+    <section class="panel"><h2>Incident updates</h2><ul id="public-incidents" class="account-list"></ul></section>
+    <section class="panel"><h2>Scheduled maintenance</h2><ul id="public-maintenance" class="account-list"></ul></section>
+  </main>
+</body>
+</html>

@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.auth import hash_password, valid_username
 from app.db.database import SessionLocal
 from app.db.models import User
+from app.services.audit import audit
 
 
 def main():
@@ -29,8 +30,11 @@ def main():
         parser.error("Passwords do not match")
 
     with SessionLocal() as db:
-        db.add(User(username=args.username, password_hash=hash_password(password), role=args.role))
+        account = User(username=args.username, password_hash=hash_password(password), role=args.role)
+        db.add(account)
         try:
+            db.flush()
+            audit(db, "local CLI", None, f"account.created.{args.role}", account.id)
             db.commit()
         except IntegrityError:
             parser.error("Username already exists")

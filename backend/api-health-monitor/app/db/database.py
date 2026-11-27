@@ -23,7 +23,7 @@ if not DATABASE_URL and os.getenv("POSTGRES_HOST") and os.getenv("POSTGRES_PASSW
 if not DATABASE_URL:
     raise RuntimeError("Set DATABASE_URL or configure POSTGRES_HOST and POSTGRES_PASSWORD.")
 
-engine_options = {"pool_pre_ping": True}
+engine_options = {"pool_pre_ping": True, "hide_parameters": True}
 
 if DATABASE_URL.startswith("sqlite"):
     engine_options["connect_args"] = {"check_same_thread": False}

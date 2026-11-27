@@ -1262,7 +1262,7 @@ a:hover {
 }
 
 body:not([data-role="admin"]) [data-admin-only],
-body:not([data-role="admin"], [data-role="member"]) :is(#add-button, #empty-add-button, [data-action="check"], [data-action="edit"], [data-action="toggle"], [data-action="delete"]) {
+body:not([data-role="admin"], [data-role="member"]) :is(#add-button, #add-heartbeat, #empty-add-button, [data-action="check"], [data-action="edit"], [data-action="toggle"], [data-action="delete"]) {
   display: none;
 }
 
@@ -1558,3 +1558,48 @@ body:not([data-role="admin"], [data-role="member"]) :is(#add-button, #empty-add-
   .summary-label { overflow-wrap: anywhere; }
   .brand h1 { font-size: 18px; }
 }
+
+.advanced-config {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.advanced-config summary { cursor: pointer; }
+.advanced-config .form-grid { margin-top: 12px; }
+.advanced-config button { margin-top: 12px; }
+.field textarea {
+  width: 100%;
+  padding: 8px;
+  resize: vertical;
+  font: inherit;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.operations-content { overflow-wrap: anywhere; }
+.operations-content p + p { margin-top: 8px; }
+.history-range { display: grid; gap: 8px; margin-bottom: 18px; }
+.history-range label { justify-self: start; }
+.deployment-line { stroke: var(--pending); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.report-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.monitor-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0; }
+.monitor-tags span {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+#integration-list li { flex-wrap: wrap; }
+#public-status-link, #report-json { display: inline-block; margin-top: 8px; }
+.trend-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.trend-tables h3 { font-size: 0.88rem; }
+.trend-bars { list-style: none; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; padding: 0; margin: 10px 0 0; }
+.trend-bars li { display: grid; gap: 3px; text-align: center; font-size: 0.71rem; color: var(--text-soft); }
+.trend-bars time { color: var(--muted); }
+.trend-bar-track { display: flex; align-items: flex-end; height: 32px; background: var(--surface-muted); border-radius: 4px; overflow: hidden; }
+.trend-bar-track span { width: 100%; background: var(--primary); }
+@media (max-width: 760px) { .trend-tables { grid-template-columns: minmax(0, 1fr); } }

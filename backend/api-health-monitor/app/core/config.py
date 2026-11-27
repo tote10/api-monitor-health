@@ -18,6 +18,11 @@ class Settings(BaseSettings):
         default=3600, ge=60, le=86400
     )
 
+    TLS_EXPIRY_WARNING_DAYS: int = Field(default=14, ge=0, le=30)
+    ALLOW_LOOPBACK_TARGETS: bool = False
+    MONITOR_CONFIG_KEY: SecretStr | None = None
+    PUBLIC_BASE_URL: str = ""
+
     ALERT_WEBHOOK_URL: SecretStr | None = None
     ALERT_EMAIL_TO: str = ""
     SMTP_HOST: str = ""
@@ -29,6 +34,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_email_alert_settings(self):
+        if self.ALLOW_LOOPBACK_TARGETS and self.ENVIRONMENT != "development":
+            raise ValueError("ALLOW_LOOPBACK_TARGETS requires ENVIRONMENT=development")
         if self.SMTP_HOST and not (self.SMTP_FROM and self.ALERT_EMAIL_TO):
             raise ValueError("Set SMTP_FROM and ALERT_EMAIL_TO when SMTP_HOST is configured")
         if self.SMTP_HOST and bool(self.SMTP_USERNAME) != bool(self.SMTP_PASSWORD):

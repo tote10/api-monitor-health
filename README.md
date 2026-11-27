@@ -77,8 +77,8 @@ binds the dashboard to loopback by default. Set `APP_PORT=9000` in `.env` if
 port 8000 is already in use. An existing SQLite installation keeps its data
 in its own database.
 
-Use `docker compose down` to stop the stack and retain its data. Run one API
-worker because the scheduler and notification delivery loop are in that worker.
+Use `docker compose down` to stop the stack and retain its data. The Compose
+stack starts one API worker and uses PostgreSQL for scheduler and delivery claims.
 
 ## Accounts and access
 
@@ -303,3 +303,242 @@ docker compose exec -T db psql -U postgres -d api_health_monitor_restore -c 'SEL
 A backup contains application data and password hashes. Store it with the same
 access restrictions as the database. For release troubleshooting, run
 `docker compose ps` and `docker compose logs --tail=100 api`.
+
+## Local outage and recovery demo
+
+Run this against a fresh local database and never enable the loopback exception
+in a deployed environment. In one shell, from `backend/api-health-monitor`:
+
+```bash
+python scripts/demo_target.py
+```
+
+In another shell, activate the project environment, then configure and launch
+the monitor:
+
+```bash
+export DATABASE_URL=sqlite:///./demo-monitor.db
+export ENVIRONMENT=development ALLOW_LOOPBACK_TARGETS=true
+export ALERT_WEBHOOK_URL=http://127.0.0.1:8765/webhook
+export PUBLIC_BASE_URL=http://127.0.0.1:8000
+alembic upgrade head
+python -m app.create_user admin --role admin
+uvicorn main:app
+```
+
+Sign in and add `http://127.0.0.1:8765/health` with an interval of 10 seconds,
+a timeout of 1 second, and an open and recovery threshold of 2 checks in
+**Advanced monitoring settings**. Let one healthy check complete, then run:
+
+```bash
+curl -X POST http://127.0.0.1:8765/mode/down
+```
+
+Two failed checks open one incident and queue one outage notification. Leave the
+target down for another check to confirm it keeps the same incident. Set the
+target back to `ok` through `POST /mode/ok` and wait for two passing checks to see
+recovery. `POST /mode/slow` simulates a timeout with the settings above.
+`GET http://127.0.0.1:8765/events` shows received webhook events. The target
+deduplicates webhook retries using the `Idempotency-Key` header. Schedule a
+maintenance window from the monitor card to see alerts suppressed at transition
+time while checks continue. Use **Pause** to suspend scheduled checks.
+
+### Check configuration and results
+
+Existing monitors keep their method, status, and scheduling behavior through
+migration defaults. The default consecutive failure and recovery thresholds
+are both one. Set them higher per monitor if you want to filter transient
+failures. Request options support headers, a string body, and a text containment
+assertion. Generate a Fernet key with
+`python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+and supply it as `MONITOR_CONFIG_KEY` through the environment. Keep it stable
+across workers and restarts and back it up separately from the database.
+Request options are encrypted and write-only through the API. Put credentials
+in request options rather than in monitor URLs. Redirects are revalidated.
+Requests that follow redirects drop configured headers and bodies on an origin
+change. Non-GET or HEAD requests do not follow redirects.
+
+A slow HTTP response can still be available. Timeouts, connectivity errors,
+unexpected status codes and failed assertions count as failed checks. Uptime is
+successful recorded checks divided by all recorded checks in the selected range.
+Missing observations are excluded and a range without observations is unknown.
+Maintenance checks count toward availability. Their incident transitions are
+recorded and the related notifications are suppressed. Percentiles use
+nearest-rank measurements from checks that received an HTTP response. An active
+monitor becomes stale after its interval, timeout and two scheduler polls have
+elapsed without an observation.
+
+Use `GET /api/v1/endpoints/{id}/incident-records` for incidents that follow the
+configured open and recovery thresholds. The older `/incidents` route still
+returns failure runs from retained check history for compatibility.
+
+Webhook delivery is bounded and retries may repeat a send if a receiver accepted
+it before the worker recorded success. Receivers can deduplicate on the stable
+delivery ID. Server-wide email and webhook settings deliver shared workspace
+events only. Authorized operators can see delivery outcomes at
+`GET /api/v1/endpoints/{id}/deliveries`.
+
+### Heartbeats
+
+Choose **Add heartbeat**, enter a name, the expected cadence in seconds, and a
+grace period. For a daily backup, enter 86400 seconds and a 900-second grace
+period. Copy the token when it is shown and store it with the job's secrets.
+After a successful job run, make an authenticated POST to the check-in URL:
+
+```bash
+curl --fail-with-body -X POST \
+  -H "Authorization: Bearer $HEARTBEAT_TOKEN" \
+  "http://127.0.0.1:8000/api/v1/heartbeats/$HEARTBEAT_ID/ping"
+```
+
+For a quick demo, use a 10-second cadence and 5-second grace. Wait for the
+first missed check to open an incident. Send a valid check-in to resolve it.
+Use **Edit** on the heartbeat card to rotate or revoke its credential.
+Pausing a heartbeat stops automatic missing-check detection. Valid job
+check-ins can still be recorded. Use HTTPS for real jobs.
+
+### Multi-step checks
+
+Keep the local demo target running, generate and export `MONITOR_CONFIG_KEY`,
+and restart the monitor. Add an HTTP monitor with URL
+`http://127.0.0.1:8765/workflow/login`, set a timeout for the entire run, and
+paste this in **Request options (JSON)**:
+
+```json
+{
+  "steps": [
+    {
+      "url": "http://127.0.0.1:8765/workflow/login",
+      "method": "POST",
+      "timeout_seconds": 3,
+      "extract": {"session": "data.token"}
+    },
+    {
+      "url": "http://127.0.0.1:8765/workflow/profile",
+      "timeout_seconds": 3,
+      "headers": {"Authorization": "Bearer {{session}}"},
+      "contains": "account_active"
+    },
+    {
+      "url": "http://127.0.0.1:8765/workflow/finish",
+      "timeout_seconds": 2,
+      "expected_status_codes": [200, 204]
+    }
+  ]
+}
+```
+
+Use **Check now** once in `ok` mode, then set `POST /mode/down` and check
+again. The second request receives HTTP 503, stops the workflow, and the
+check history shows **Step 2**. Extraction accepts dot-separated JSON keys and array
+indexes, with scalar values only. Placeholder substitution is supported in
+headers, bodies and text assertions. Each workflow has up to eight steps and
+each asserted or extracted response is capped at 128 KiB of uncompressed data.
+Variables live only in the current run. Dashboard and API results include the
+failed step and a generic reason without storing the raw response or variables.
+
+### Deployments, diagnostics, reliability, and reports
+
+- Send an authenticated `POST /api/v1/endpoints/{id}/deployments` with
+  `{"label":"Release 1.2","revision":"abc123"}`. The optional `deployed_at`
+  field accepts a timezone-aware timestamp. The history chart shows markers
+  in its displayed period. Incident details show deployments on the same
+  monitor from one hour before the first failure until recovery or the present.
+  The timestamps show when events occurred. Operators can record a confirmed
+  cause separately.
+- Open **Diagnostics** in the admin account menu to view overdue checks,
+  estimated missed checks, observed scheduler workers, and pending or failed
+  alerts. Monitoring reports total duration. DNS, connect, TLS handshake, and
+  time to first byte are marked unavailable.
+- Set an availability objective and rolling window in **Advanced monitoring
+  settings**. For a 99.9% objective, the error budget is 0.001 multiplied by
+  the number of recorded checks, minus failed checks. For example, three
+  recorded checks with one failure against a 90% objective leave a budget of
+  −0.7 checks. Maintenance checks count, missing observations and unconfigured
+  agent targets are excluded, and an empty window is unknown.
+- **History** provides check and incident CSV exports. In an incident, open
+  **Incident report** to edit the confirmed root cause and follow-up actions.
+  The report also includes detection, acknowledgement, recovery and notes.
+- Assign the same **Service group** to related monitors to link incidents
+  that open within 30 minutes of each other. Grouping preserves each
+  incident's own timeline. Tags are searchable and can also drive alerts.
+
+### Alert routing and audit
+
+In the account menu, open **Alert routing & audit** to add webhook, Slack, or
+Discord destinations. The destination URL is encrypted using
+`MONITOR_CONFIG_KEY`. Filters can match a specific monitor, service group, tag,
+and severity. All supplied filters must match. **Send test** queues a test
+message for the selected service. Reopen the panel to see its delivery outcome.
+Set an escalation delay for critical incidents to send one additional message
+when the incident remains open and unacknowledged. Acknowledgement or recovery
+cancels an escalation before it is sent. A send already in progress can still
+reach the destination.
+
+Monitor, routing, maintenance, account, agent and public-status changes have
+audit entries showing the actor, action, subject and timestamp. Credential
+values are omitted. Server-wide SMTP and webhook settings apply to the shared
+workspace. Use workspace alert routes for private workspaces.
+
+### Status pages, TLS and history retention
+
+Give a monitor a **Public service name** and publish **Public status page**
+from the account menu. Share the generated page link. Published services show
+their current health, scheduled maintenance times and any explicitly written
+**Public incident update**. The public snapshot does not expose internal
+monitor names or URLs, private notes, raw results, or credentials. Unpublish
+the page to stop serving it.
+
+A successful TLS handshake can expose the leaf certificate's expiration.
+Set `TLS_EXPIRY_WARNING_DAYS` (default 14, zero disables) to notify once for
+an observed expiration per destination. Checks still verify TLS normally.
+The history dialog shows the observed expiration if the connection exposes
+it. **History retention** can override the server's existing
+`CHECK_HISTORY_RETENTION_DAYS` policy per monitor. Blank inherits the server
+setting and zero retains history indefinitely. A shorter retention setting can
+reduce the observations available to longer SLO windows.
+
+### Private agents
+
+From **Private agents**, register an agent and copy its ID and one-time token.
+On the machine inside the private network, prepare a local JSON file mapping
+approved aliases to URLs:
+
+```json
+{"internal-health":"http://127.0.0.1:8765/health"}
+```
+
+Run the agent with the project environment installed:
+
+```bash
+export MONITOR_AGENT_TOKEN=YOUR_AGENT_TOKEN
+python scripts/private_agent.py --controller https://monitor.example.com \
+  --agent-id YOUR_AGENT_ID --targets ./private-targets.json
+```
+
+For a local demo with the controller on `http://127.0.0.1:8000`, add
+`--allow-local-http-controller` and run `scripts/demo_target.py`. In the
+dashboard, add a private monitor to the agent with target alias
+`internal-health`. The controller supplies aliases only. Each agent can run
+only GET checks against its local allowlist, does not follow redirects, and
+returns status, latency or a failure classification. Local URLs stay on the
+agent. Stopping the agent for 90 seconds shows **Agent offline** and makes
+monitor health unknown without opening a service incident. A reachable agent
+observing a failing service can open an incident normally. Agents and their
+assigned monitors are isolated to their workspace.
+
+### Deployment and delivery notes
+
+The hosted application runs on Railway. The Docker startup script runs
+`alembic upgrade head` before binding to the service's `PORT`. The image
+health check uses the same port. For the hosted service, keep the existing
+PostgreSQL connection and set a stable `MONITOR_CONFIG_KEY` for encrypted
+request settings and alert destinations. Set `PUBLIC_BASE_URL` to the service's
+public origin to include incident links in notifications.
+
+Use PostgreSQL for concurrent production workers and apply migrations before
+starting the new app version. SQLite remains supported for local evaluation.
+Run `alembic upgrade head` against the intended database after backing it up.
+Migration revisions are additive and intentionally reject downgrades that
+would discard new records. Enable HTTPS and secure cookies in production.
+Keep `ALLOW_LOOPBACK_TARGETS` disabled outside the local demo.
