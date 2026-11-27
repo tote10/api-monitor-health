@@ -1,9 +1,7 @@
 import secrets
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -15,9 +13,9 @@ from app.db.database import get_db
 from app.db.models import Incident, MaintenanceWindow, StatusPage, User
 from app.services.audit import audit
 from app.services.monitor_service import dashboard_statuses
+from app.web_pages import page_response
 
 router = APIRouter(tags=["Status page"])
-TEMPLATE = Path(__file__).resolve().parents[2] / "templates" / "public_status.html"
 
 
 class StatusSettings(BaseModel):
@@ -71,7 +69,7 @@ def enabled_page(db: Session, slug: str) -> StatusPage:
 @router.get("/status/{slug}", include_in_schema=False)
 def status_page(slug: str, db: Session = Depends(get_db)):
     enabled_page(db, slug)
-    return FileResponse(TEMPLATE, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
+    return page_response("public_status.html", headers={"X-Robots-Tag": "noindex"})
 
 
 @router.get("/status/{slug}/snapshot")

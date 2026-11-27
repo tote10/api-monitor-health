@@ -1,4 +1,6 @@
+import re
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 
 from sqlalchemy import update
 
@@ -7,6 +9,23 @@ from app.db.models import LoginSession
 from tests.conftest import TEST_PASSWORD
 
 ENDPOINTS = "/api/v1/endpoints"
+
+
+def test_dashboard_uses_content_versioned_assets(client):
+    page = client.get("/", headers={"accept": "text/html"})
+    assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store"
+    assets = re.findall(r'(?:href|src)="(/static/[^"?]+)\?v=([a-f0-9]{16})"', page.text)
+    assert len(assets) == page.text.count('="/static/')
+    assert {"/static/styles.css", "/static/app.js"} <= {path for path, _ in assets}
+    for path, version in assets:
+        asset = client.get(f"{path}?v={version}")
+        assert asset.status_code == 200
+        assert asset.headers["cache-control"] == "no-cache"
+        assert sha256(asset.content).hexdigest().startswith(version)
+        conditional = client.get(path, headers={"If-None-Match": asset.headers["etag"]})
+        assert conditional.status_code == 304
+        assert conditional.headers["cache-control"] == "no-cache"
 
 
 def test_anonymous_access(anonymous_client):

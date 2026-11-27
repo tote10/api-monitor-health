@@ -1,13 +1,11 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
-from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
@@ -23,8 +21,7 @@ from app.db.database import engine, get_db
 from app.services.alert_service import alert_loop, enabled_channels
 from app.services.diagnostics import scheduler_diagnostics
 from app.services.monitor_service import monitoring_loop
-
-APP_DIR = Path(__file__).resolve().parent / "app"
+from app.web_pages import APP_DIR, RevalidatedStaticFiles, page_response
 
 
 @asynccontextmanager
@@ -73,7 +70,7 @@ async def validation_error(_: Request, error: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": detail})
 
 
-app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+app.mount("/static", RevalidatedStaticFiles(directory=APP_DIR / "static"), name="static")
 
 
 @app.get("/", include_in_schema=False)
@@ -82,7 +79,7 @@ def root(request: Request, db: Session = Depends(get_db)):
     if "text/html" in request.headers.get("accept", ""):
         if session_user(request, db) is None:
             return RedirectResponse("/login", headers={"Cache-Control": "no-store"})
-        return FileResponse(APP_DIR / "templates" / "index.html", headers={"Cache-Control": "no-store"})
+        return page_response("index.html")
 
     payload = {
         "status": "running",
@@ -131,12 +128,12 @@ def diagnostics(db: Session = Depends(get_db)):
 
 @app.get("/login", include_in_schema=False)
 def login_page():
-    return FileResponse(APP_DIR / "templates" / "login.html")
+    return page_response("login.html")
 
 
 @app.get("/register", include_in_schema=False)
 def registration_page():
-    return FileResponse(APP_DIR / "templates" / "register.html", headers={"Cache-Control": "no-store"})
+    return page_response("register.html")
 
 
 @app.get("/docs", include_in_schema=False, dependencies=[Depends(require_admin)])
