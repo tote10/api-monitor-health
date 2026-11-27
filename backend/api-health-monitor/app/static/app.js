@@ -758,6 +758,73 @@
     }
   }, REFRESH_MS);
 
+  var usersDialog = document.getElementById("users-dialog");
+  var usersList = document.getElementById("users-list");
+  var usersStatus = document.getElementById("users-status");
+  var loadingUsers = false;
+
+  async function requestUsers(path, options) {
+    var response = await fetch("/auth/users" + path, options);
+    if (response.status === 401) window.location.replace("/login");
+    if (response.status === 204) return null;
+    var data = await response.json();
+    if (!response.ok) throw new Error(errorMessage(data, response.status));
+    return data;
+  }
+
+  async function loadUsers() {
+    if (loadingUsers) return;
+    loadingUsers = true;
+    usersList.replaceChildren();
+    usersStatus.textContent = "Loading accounts…";
+    try {
+      var users = await requestUsers("");
+      users.forEach(function (user) {
+        var row = document.createElement("li");
+        var identity = document.createElement("div");
+        var name = document.createElement("strong");
+        var role = document.createElement("small");
+        name.textContent = user.username;
+        role.textContent = user.can_delete ? user.role : user.role + " · You";
+        identity.append(name, role);
+        row.append(identity);
+
+        if (user.can_delete) {
+          var button = document.createElement("button");
+          button.type = "button";
+          button.className = "action-button danger";
+          button.textContent = "Delete";
+          button.setAttribute("aria-label", "Delete account " + user.username);
+          button.addEventListener("click", async function () {
+            if (!window.confirm("Delete " + user.username + " and all endpoints and check history owned by this account? This cannot be undone.")) return;
+            button.disabled = true;
+            usersStatus.textContent = "Deleting account…";
+            try {
+              await requestUsers("/" + user.id, {method: "DELETE"});
+              row.remove();
+              usersStatus.textContent = "Account deleted.";
+            } catch (error) {
+              usersStatus.textContent = error.message;
+              button.disabled = false;
+            }
+          });
+          row.append(button);
+        }
+        usersList.append(row);
+      });
+      usersStatus.textContent = users.length ? "" : "No accounts found.";
+    } catch (error) {
+      usersStatus.textContent = error.message;
+    } finally {
+      loadingUsers = false;
+    }
+  }
+
+  document.getElementById("users-button").addEventListener("click", function () {
+    usersDialog.showModal();
+    loadUsers();
+  });
+
   var inviteDialog = document.getElementById("invite-dialog");
   var inviteForm = document.getElementById("invite-form");
   var inviteStatus = document.getElementById("invite-status");

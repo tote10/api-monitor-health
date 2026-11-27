@@ -1261,9 +1261,32 @@ a:hover {
   font: inherit;
 }
 
-body:not([data-role="admin"]) #invite-button,
+body:not([data-role="admin"]) [data-admin-only],
 body:not([data-role="admin"], [data-role="member"]) :is(#add-button, #empty-add-button, [data-action="check"], [data-action="edit"], [data-action="toggle"], [data-action="delete"]) {
   display: none;
+}
+
+.account-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+}
+
+.account-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.account-list small {
+  display: block;
+  text-transform: capitalize;
 }
 
 .incident-section {

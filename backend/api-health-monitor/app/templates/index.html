@@ -23,7 +23,8 @@
         </div>
       </div>
       <div class="topbar-actions">
-        <button class="button button-ghost" id="invite-button" type="button">Invite user</button>
+        <button class="button button-ghost" data-admin-only id="users-button" type="button">Manage users</button>
+        <button class="button button-ghost" data-admin-only id="invite-button" type="button">Invite user</button>
         <button class="button button-ghost" id="logout-button" type="button">Sign out</button>
         <span class="live-status" id="live-status">
           <span class="live-dot" aria-hidden="true"></span>
@@ -142,7 +143,7 @@
 
     <footer class="footer">
       <span>API Health Monitor treats every configured URL as a target and stores each check result.</span>
-      <span class="footer-links">
+      <span class="footer-links" data-admin-only>
         <a href="/docs" target="_blank" rel="noreferrer">API docs</a>
         <span aria-hidden="true">·</span>
         <a href="/ready" target="_blank" rel="noreferrer">Readiness</a>
@@ -241,6 +242,15 @@
     <h3 class="history-heading">Recent check log</h3>
     <div class="history-summary" id="history-summary"></div>
     <div class="history-list" id="history-list"></div>
+  </dialog>
+
+  <dialog class="modal" id="users-dialog" aria-labelledby="users-title">
+    <div class="modal-head">
+      <h2 id="users-title">Manage users</h2>
+      <button class="icon-button" type="button" data-close-dialog="users-dialog" aria-label="Close dialog">×</button>
+    </div>
+    <p id="users-status" role="status"></p>
+    <ul id="users-list" class="account-list" aria-label="User accounts"></ul>
   </dialog>
 
   <dialog class="modal" id="invite-dialog" aria-labelledby="invite-title">

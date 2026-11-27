@@ -11,8 +11,8 @@ every result so you can see status, uptime, response times, and failures.
   failure, the recovery check, and the observed duration.
 - **Alerts** can send email or webhook notifications when a monitored endpoint goes down or recovers.
 - **Retention** prunes old results automatically (30 days by default).
-- **Authentication** with sign-in, sign-out, and administrator or read-only viewer access.
-- **REST API** with interactive docs at `/docs` after sign-in.
+- **Authentication** with administrator, private member, and read-only viewer accounts.
+- **REST API** with interactive docs at `/docs` for signed-in administrators.
 - **SQLite or PostgreSQL** storage through SQLAlchemy and Alembic migrations.
 - **Docker Compose** setup with a database healthcheck and migrations on startup.
 
@@ -86,9 +86,10 @@ Account creation prompts for a password. Run the account creation command after
 applying migrations, including when upgrading an existing installation. Use
 `--role viewer` to create a read-only account.
 
-- Administrators can add, edit, pause, manually check, and delete endpoints.
-- Viewers can see endpoints, uptime, response times, and check history.
-- The dashboard, monitoring API, and interactive docs require sign-in.
+- Administrators manage shared endpoints, invite members, and list or delete accounts in **Manage users**. Deleting an account revokes its sessions and removes its private endpoints and monitoring history. Administrators cannot delete their own accounts from the dashboard.
+- Members manage endpoints and view results in their private workspace.
+- Viewers can see shared endpoints, uptime, response times, and check history.
+- The dashboard and monitoring API require sign-in. Swagger, ReDoc, and the OpenAPI schema require administrator access.
   `/health` and `/ready` remain public for service probes.
 
 ### Invite someone to register

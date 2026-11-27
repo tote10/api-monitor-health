@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.endpoints import router as endpoints_router
-from app.core.auth import require_user, router as auth_router, session_user
+from app.core.auth import require_admin, router as auth_router, session_user
 from app.core.config import settings
 from app.db.database import engine, get_db
 from app.services.alert_service import alert_loop, enabled_channels
@@ -65,11 +65,14 @@ def root(request: Request, db: Session = Depends(get_db)):
             return RedirectResponse("/login", headers={"Cache-Control": "no-store"})
         return FileResponse(APP_DIR / "templates" / "index.html", headers={"Cache-Control": "no-store"})
 
-    return {
+    payload = {
         "status": "running",
-        "docs": "/docs",
         "dashboard": "/",
     }
+    user = session_user(request, db)
+    if user is not None and user.role == "admin":
+        payload["docs"] = "/docs"
+    return JSONResponse(payload, headers={"Cache-Control": "private, no-store"})
 
 
 @app.get("/health")
@@ -111,19 +114,23 @@ def registration_page():
     return FileResponse(APP_DIR / "templates" / "register.html", headers={"Cache-Control": "no-store"})
 
 
-@app.get("/docs", include_in_schema=False, dependencies=[Depends(require_user)])
+@app.get("/docs", include_in_schema=False, dependencies=[Depends(require_admin)])
 def docs():
-    return get_swagger_ui_html(openapi_url="/openapi.json", title=app.title)
+    response = get_swagger_ui_html(openapi_url="/openapi.json", title=app.title)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
-@app.get("/redoc", include_in_schema=False, dependencies=[Depends(require_user)])
+@app.get("/redoc", include_in_schema=False, dependencies=[Depends(require_admin)])
 def redoc():
-    return get_redoc_html(openapi_url="/openapi.json", title=app.title)
+    response = get_redoc_html(openapi_url="/openapi.json", title=app.title)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
-@app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(require_user)])
+@app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(require_admin)])
 def openapi():
-    return app.openapi()
+    return JSONResponse(app.openapi(), headers={"Cache-Control": "private, no-store"})
 
 
 app.include_router(auth_router)

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models import AccountInvite, LoginSession, User
+from app.db.models import AccountInvite, Endpoint, LoginSession, User
 
 COOKIE = "monitor_session"
 SESSION_LIFETIME = timedelta(hours=12)
@@ -78,6 +78,12 @@ def require_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = session_user(request, db)
     if user is None:
         raise HTTPException(401, "Sign in required")
+    return user
+
+
+def require_admin(user: User = Depends(require_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(403, "Administrator access required")
     return user
 
 
@@ -147,6 +153,57 @@ def current_user(response: Response, user: User = Depends(require_user)):
     return {"username": user.username, "role": user.role}
 
 
+@router.get("/users")
+def list_users(
+    response: Response,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    accounts = db.execute(select(User.id, User.username, User.role).order_by(User.username))
+    return [
+        {
+            "id": account.id,
+            "username": account.username,
+            "role": account.role,
+            "can_delete": account.id != admin.id,
+        }
+        for account in accounts
+    ]
+
+
+@router.delete("/users/{user_id}", status_code=204, dependencies=[Depends(check_request_origin)])
+def delete_user(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if user_id == admin.id:
+        raise HTTPException(409, "You cannot delete your own account")
+
+    # Lock both accounts in the same order so two admins cannot delete each other.
+    accounts = {
+        account.id: account
+        for account in db.scalars(
+            select(User).where(User.id.in_([admin.id, user_id]))
+            .order_by(User.id).with_for_update()
+        )
+    }
+    if admin.id not in accounts:
+        raise HTTPException(401, "Sign in required")
+    account = accounts.get(user_id)
+    if account is None:
+        raise HTTPException(404, "Account not found")
+
+    for endpoint in db.scalars(select(Endpoint).where(Endpoint.owner_id == user_id)):
+        db.delete(endpoint)
+    db.execute(delete(LoginSession).where(LoginSession.user_id == user_id))
+    db.flush()
+    db.delete(account)
+    db.commit()
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
 class InviteRegistration(Credentials):
     password: str = Field(min_length=12, max_length=256)
     invite_token: str = Field(min_length=43, max_length=43, pattern=r"^[A-Za-z0-9_-]+$")
@@ -162,11 +219,9 @@ class InviteRegistration(Credentials):
 @router.post("/invites", status_code=201, dependencies=[Depends(check_request_origin)])
 def create_invite(
     response: Response,
-    user: User = Depends(require_user),
+    _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if user.role != "admin":
-        raise HTTPException(403, "Administrator access required")
     now = datetime.now(timezone.utc)
     expires_at = now + INVITE_LIFETIME
     db.execute(delete(AccountInvite).where(AccountInvite.expires_at <= now))
