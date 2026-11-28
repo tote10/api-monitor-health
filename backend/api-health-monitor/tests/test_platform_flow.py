@@ -330,7 +330,7 @@ def test_public_page_only_publishes_explicit_service_data(client, session_factor
     assert client.get(url).status_code == 200
     snapshot = client.get(url + "/snapshot")
     assert snapshot.status_code == 200, snapshot.text
-    assert snapshot.json()["services"] == [{"name": "Public API", "state": "unknown"}]
+    assert snapshot.json()["services"] == [{"name": "Public API", "state": "unknown", "id": monitor["id"]}]
     assert snapshot.json()["incidents"][0]["message"] == "We are investigating."
     for secret in ("a-value", "Hidden service", "Private failure", "Private note", "Internal monitor name"):
         assert secret not in snapshot.text

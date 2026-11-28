@@ -15,6 +15,15 @@
     </header>
     <p id="public-error" role="status">Loading service status…</p>
     <section class="panel"><h2>Services</h2><ul id="public-services" class="account-list"></ul></section>
+    <section class="panel" id="subscriptions" hidden>
+      <h2>Subscribe to a service</h2>
+      <form class="advanced-config" id="public-subscribe">
+        <label>Service <select name="service" required></select></label>
+        <label>Email address <input name="address" type="email" maxlength="254" required></label>
+        <button type="submit" class="button button-primary">Send confirmation</button>
+      </form>
+      <p id="subscription-result" role="status"></p>
+    </section>
     <section class="panel"><h2>Incident updates</h2><ul id="public-incidents" class="account-list"></ul></section>
     <section class="panel"><h2>Scheduled maintenance</h2><ul id="public-maintenance" class="account-list"></ul></section>
   </main>
