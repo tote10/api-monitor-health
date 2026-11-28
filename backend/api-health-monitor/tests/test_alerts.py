@@ -15,6 +15,7 @@ from app.services import alert_service, monitor_service
 def test_manual_and_scheduled_checks_queue_only_transitions(client, session_factory, monkeypatch):
     monkeypatch.setattr(settings, "ALERT_WEBHOOK_URL", SecretStr("https://example.com/alerts"))
     monkeypatch.setattr(settings, "SMTP_HOST", "mail.example.com")
+    monkeypatch.setattr(settings, "ALERT_EMAIL_TO", "ops@example.com")
     start = datetime.now(timezone.utc) - timedelta(minutes=5)
     observations = iter([
         (True, start),
@@ -95,6 +96,7 @@ def test_smtp_delivery_uses_configured_recipient_and_starttls(monkeypatch):
     monkeypatch.setattr(settings, "SMTP_FROM", "monitor@example.com")
     monkeypatch.setattr(settings, "ALERT_EMAIL_TO", "ops@example.com")
     smtp = Mock()
+    smtp.send_message.return_value = {}
     connection = Mock()
     connection.__enter__ = Mock(return_value=smtp)
     connection.__exit__ = Mock(return_value=False)
@@ -109,7 +111,7 @@ def test_smtp_delivery_uses_configured_recipient_and_starttls(monkeypatch):
     message = smtp.send_message.call_args.args[0]
     assert message["To"] == "ops@example.com"
     assert message["Subject"] == "Demo is down"
-    assert "503" in message.get_content()
+    assert "503" in message.get_body(preferencelist=("plain",)).get_content()
 
 
 def test_webhook_sends_json_without_following_redirects(monkeypatch):

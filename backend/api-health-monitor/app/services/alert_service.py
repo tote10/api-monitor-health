@@ -5,15 +5,17 @@ import smtplib
 import ssl
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
+from hashlib import sha256
 
 import httpx
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session, aliased
 
 from app.core.config import settings
 from app.db.database import SessionLocal
-from app.db.models import AlertDelivery, AlertIntegration, CheckResult, Endpoint, Incident, MaintenanceWindow
+from app.db.models import AlertAttempt, AlertDelivery, AlertIntegration, CheckResult, Endpoint, Incident, MaintenanceWindow
+from app.services.email_content import build_message, public_failure_reason
+from app.services.email_notifications import email_destination, queue_incident_emails, queue_weekly_digests
 from app.services.incident_service import transition_incident
 from app.services.monitor_targets import pinned_request, resolve_public_addresses
 from app.services.request_config import monitor_cipher
@@ -42,8 +44,11 @@ def in_maintenance(db: Session, endpoint_id: int, at: datetime) -> bool:
     ).limit(1)) is not None
 
 
-def save_check_results(db: Session, results: list[CheckResult]) -> int:
-    channels = enabled_channels()
+def save_check_results(db: Session, results: list[CheckResult], *, demo_base: str | None = None) -> int:
+    channels = enabled_channels() if demo_base is None else ()
+    # Global email is a legacy shared-workspace destination.
+    if not settings.ALERT_EMAIL_TO:
+        channels = tuple(channel for channel in channels if channel != "email")
     saved_count = 0
     for result in sorted(results, key=lambda item: (item.endpoint_id, item.checked_at)):
         endpoint = db.scalar(
@@ -85,17 +90,32 @@ def save_check_results(db: Session, results: list[CheckResult]) -> int:
         if settings.PUBLIC_BASE_URL:
             payload["incident_url"] = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/?endpoint={endpoint.id}&incident={incident.id}"
         now = datetime.now(timezone.utc)
-        queue_integrations(db, endpoint, incident, payload, now)
+        if demo_base is None:
+            queue_integrations(db, endpoint, incident, payload, now)
+        managed_addresses = queue_incident_emails(db, endpoint, incident, result, now, links_base=demo_base)
+        email_payload = {
+            "event": payload["event"], "endpoint_name": endpoint.name,
+            "checked_at": payload["checked_at"], "detected_at": incident.opened_at.isoformat(),
+            "incident_url": payload.get("incident_url"),
+        }
+        if result.is_success:
+            email_payload.update(
+                resolved_at=incident.recovered_at.isoformat(),
+                duration_seconds=round((incident.recovered_at - incident.first_failed_at).total_seconds()),
+            )
+        else:
+            email_payload["safe_reason"] = public_failure_reason(result.failure_kind, result.status_code)
         db.add_all(
             AlertDelivery(
                 endpoint_id=endpoint.id,
                 channel=channel,
                 incident_id=incident.id,
                 dedup_key=f"incident:{incident.id}:{channel}:{payload['event']}",
-                payload=payload,
+                payload=email_payload if channel == "email" else payload,
                 next_attempt_at=now,
             )
             for channel in channels if endpoint.owner_id is None
+            and (channel != "email" or settings.ALERT_EMAIL_TO.strip().lower() not in managed_addresses)
         )
     return saved_count
 
@@ -118,23 +138,11 @@ def queue_tls_warning(db: Session, endpoint: Endpoint, result: CheckResult, chan
                                      next_attempt_at=now, dedup_key=key))
 
 
-def _send_email(payload: dict, delivery_id: int) -> None:
-    status = "recovered" if payload["event"] == "endpoint.recovered" else "down"
-    name = " ".join(payload["endpoint_name"].split())
-    message = EmailMessage()
-    message["From"] = settings.SMTP_FROM
-    message["To"] = settings.ALERT_EMAIL_TO
-    title = (f"{name} TLS certificate is expiring" if payload["event"] == "endpoint.certificate_expiring"
-             else f"{name} is {status}")
-    message["Subject"] = title
-    message.set_content(
-        f"{title}.\n"
-        f"Check time: {payload['checked_at']}\n"
-        f"HTTP status: {payload['status_code'] or 'unavailable'}\n"
-        f"Reason: {payload.get('failure_reason') or 'unavailable'}\n"
-        f"Incident: {payload.get('incident_url') or 'see dashboard'}\n"
-        f"Alert ID: {delivery_id}\n"
-    )
+def _send_email(payload: dict, delivery_id: int, recipient: str | None = None) -> None:
+    recipient = recipient or settings.ALERT_EMAIL_TO
+    host = settings.SMTP_FROM.rsplit("@", 1)[-1].rstrip(">")
+    instance = sha256((settings.PUBLIC_BASE_URL or settings.SMTP_FROM).encode()).hexdigest()[:16]
+    message = build_message(payload, recipient, settings.SMTP_FROM, f"<monitor-{instance}-{delivery_id}@{host}>")
     context = ssl.create_default_context()
     if settings.SMTP_SECURITY == "tls":
         connection = smtplib.SMTP_SSL(
@@ -144,12 +152,31 @@ def _send_email(payload: dict, delivery_id: int) -> None:
         connection = smtplib.SMTP(
             settings.SMTP_HOST, settings.SMTP_PORT, timeout=DELIVERY_TIMEOUT,
         )
-    with connection as smtp:
-        if settings.SMTP_SECURITY == "starttls":
-            smtp.starttls(context=context)
-        if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
-            smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD.get_secret_value())
-        smtp.send_message(message)
+    accepted = False
+    try:
+        with connection as smtp:
+            if settings.SMTP_SECURITY == "starttls":
+                smtp.starttls(context=context)
+            if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
+                smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD.get_secret_value())
+            refusals = smtp.send_message(message)
+            if refusals:
+                raise smtplib.SMTPRecipientsRefused(refusals)
+            accepted = True
+    except (OSError, smtplib.SMTPException):
+        # A failed QUIT cannot undo a successful DATA response.
+        if not accepted:
+            raise
+
+
+def delivery_error(error: Exception) -> tuple[str, bool]:
+    if isinstance(error, smtplib.SMTPRecipientsRefused):
+        codes = [code for code, _ in error.recipients.values()]
+        if codes:
+            return f"SMTP {codes[0]}", all(500 <= code < 600 for code in codes)
+    if isinstance(error, smtplib.SMTPResponseException):
+        return f"SMTP {error.smtp_code}", 500 <= error.smtp_code < 600
+    return type(error).__name__, False
 
 
 async def _send_webhook(payload: dict, delivery_id: int) -> None:
@@ -185,15 +212,18 @@ async def send_webhook(destination: str, payload: dict, delivery_id: int) -> Non
                     await response.aclose()
 
 
-async def deliver_pending(session_factory: Callable[[], Session] = SessionLocal) -> None:
-    channels = (*enabled_channels(), "integration")
+async def deliver_pending(
+    session_factory: Callable[[], Session] = SessionLocal, *, capture: Callable | None = None,
+) -> None:
+    channels = ("email",) if capture is not None else (*enabled_channels(), "integration")
     older = aliased(AlertDelivery)
     earlier_pending = (
         select(older.id)
         .where(
-            older.endpoint_id == AlertDelivery.endpoint_id,
+            older.endpoint_id.is_not_distinct_from(AlertDelivery.endpoint_id),
             older.channel == AlertDelivery.channel,
             older.integration_id.is_not_distinct_from(AlertDelivery.integration_id),
+            older.recipient_id.is_not_distinct_from(AlertDelivery.recipient_id),
             older.state == "pending",
             older.id < AlertDelivery.id,
         )
@@ -226,14 +256,31 @@ async def deliver_pending(session_factory: Callable[[], Session] = SessionLocal)
                 delivery_token=token, delivery_lease_until=now + timedelta(seconds=120),
                 attempts=AlertDelivery.attempts + 1, last_attempt_at=now,
             )).rowcount
+            if claimed:
+                db.execute(update(AlertAttempt).where(
+                    AlertAttempt.delivery_id == delivery.id, AlertAttempt.outcome == "in_progress",
+                ).values(outcome="unknown", finished_at=now))
+                if delivery.attempts < MAX_ATTEMPTS:
+                    db.add(AlertAttempt(delivery_id=delivery.id, number=delivery.attempts + 1, started_at=now))
             db.commit()
         if not claimed:
             continue
         delivery.attempts += 1
         destination = None
+        recipient = None
         with session_factory() as db:
             event = delivery.payload["event"]
-            skip_delivery = event != "integration.test" and in_maintenance(db, delivery.endpoint_id, now)
+            skip_delivery = (
+                delivery.incident_id is not None and in_maintenance(db, delivery.endpoint_id, now)
+            ) or (
+                event == "endpoint.certificate_expiring" and in_maintenance(db, delivery.endpoint_id, now)
+            )
+            if delivery.channel == "email":
+                if delivery.recipient_id is not None:
+                    recipient = email_destination(db, delivery, now)
+                elif capture is None:
+                    recipient = settings.ALERT_EMAIL_TO.strip()
+                skip_delivery = skip_delivery or not recipient
             if delivery.channel == "integration":
                 route = db.get(AlertIntegration, delivery.integration_id)
                 endpoint = db.get(Endpoint, delivery.endpoint_id)
@@ -248,7 +295,12 @@ async def deliver_pending(session_factory: Callable[[], Session] = SessionLocal)
             if skip_delivery:
                 db.execute(update(AlertDelivery).where(
                     AlertDelivery.id == delivery.id, AlertDelivery.delivery_token == token,
-                ).values(state="canceled", delivery_token=None, delivery_lease_until=None))
+                ).values(state="canceled", delivery_token=None, delivery_lease_until=None,
+                         payload={"event": event} if event == "email.confirm" else delivery.payload))
+                attempt = db.get(AlertAttempt, (delivery.id, delivery.attempts))
+                if attempt:
+                    attempt.outcome = "canceled"
+                    attempt.finished_at = now
                 db.commit()
                 continue
         if delivery.attempts > MAX_ATTEMPTS:
@@ -274,17 +326,20 @@ async def deliver_pending(session_factory: Callable[[], Session] = SessionLocal)
                                if kind == "slack" else {"content": message, "allowed_mentions": {"parse": []}})
                 await send_webhook(address, payload, delivery.id)
             elif delivery.channel == "email":
-                await asyncio.to_thread(_send_email, delivery.payload, delivery.id)
+                if capture is None:
+                    await asyncio.to_thread(_send_email, delivery.payload, delivery.id, recipient)
+                else:
+                    capture(delivery.payload, delivery.id, recipient)
             else:
                 await _send_webhook(delivery.payload, delivery.id)
         except Exception as error:
-            last_error = type(error).__name__
+            last_error, permanent = delivery_error(error)
             # Destination URLs and credentials must stay out of application logs.
             logger.warning(
                 "Alert %s via %s failed on attempt %s (%s)",
                 delivery.id, delivery.channel, delivery.attempts, type(error).__name__,
             )
-            if delivery.attempts >= MAX_ATTEMPTS:
+            if permanent or delivery.attempts >= MAX_ATTEMPTS:
                 delivery.state = "failed"
             else:
                 delay = RETRY_DELAY * 2 ** (delivery.attempts - 1)
@@ -292,13 +347,21 @@ async def deliver_pending(session_factory: Callable[[], Session] = SessionLocal)
         else:
             delivery.state = "sent"
 
+        finished_at = datetime.now(timezone.utc)
         with session_factory() as db:
-            db.execute(update(AlertDelivery).where(
+            updated = db.execute(update(AlertDelivery).where(
                 AlertDelivery.id == delivery.id, AlertDelivery.delivery_token == token,
             ).values(
                 state=delivery.state, next_attempt_at=delivery.next_attempt_at, last_error=last_error,
+                accepted_at=finished_at if delivery.state == "sent" else None,
+                payload={"event": event} if event == "email.confirm" and delivery.state != "pending" else delivery.payload,
                 delivery_token=None, delivery_lease_until=None,
-            ))
+            )).rowcount
+            if updated:
+                attempt = db.get(AlertAttempt, (delivery.id, delivery.attempts))
+                attempt.finished_at = finished_at
+                attempt.outcome = "failed" if last_error else "accepted"
+                attempt.error = last_error
             db.commit()
 
 
@@ -312,10 +375,13 @@ async def alert_loop(poll_seconds: float) -> None:
             if now >= next_cleanup:
                 next_cleanup = now + timedelta(hours=1)
                 with SessionLocal() as db:
-                    db.execute(delete(AlertDelivery).where(
+                    queue_weekly_digests(db, now)
+                    expired = db.scalars(select(AlertDelivery).where(
                         AlertDelivery.state != "pending",
                         AlertDelivery.created_at < now - timedelta(days=30),
                     ))
+                    for delivery in expired:
+                        db.delete(delivery)
                     db.commit()
         except Exception:
             logger.exception("Could not process alert queue")

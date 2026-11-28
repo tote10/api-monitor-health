@@ -30,6 +30,7 @@
             <button data-admin-only id="invite-button" type="button">Invite user</button>
             <button id="agents-button" type="button">Private agents</button>
             <button id="integrations-button" type="button">Alert routing &amp; audit</button>
+            <button id="email-settings-button" type="button">Email notifications</button>
             <button id="status-settings-button" type="button">Public status page</button>
             <button data-admin-only id="diagnostics-button" type="button">Diagnostics</button>
             <a data-admin-only href="/docs" target="_blank" rel="noreferrer">API docs</a>
@@ -445,6 +446,19 @@
     </details>
   </dialog>
 
+  <dialog class="modal" id="email-settings-dialog" aria-labelledby="email-settings-heading">
+    <div class="modal-header">
+      <h2 id="email-settings-heading">Email notifications</h2>
+      <button class="icon-button" type="button" data-close-dialog="email-settings-dialog" aria-label="Close dialog">×</button>
+    </div>
+    <form id="email-settings-form" class="advanced-config">
+      <label>Email address <input type="email" name="address" maxlength="254" required></label>
+      <button class="button button-primary" type="submit">Send verification email</button>
+    </form>
+    <p id="email-settings-result" role="status"></p>
+    <div id="email-recipients" class="email-recipients"></div>
+  </dialog>
+
   <dialog class="modal" id="status-settings-dialog" aria-labelledby="status-settings-heading">
     <div class="modal-head">
       <h2 id="status-settings-heading">Public status page</h2>
@@ -575,6 +589,7 @@
 
   <script src="/static/agents.js" defer></script>
   <script src="/static/workspace-settings.js" defer></script>
+  <script src="/static/email-settings.js" defer></script>
   <script src="/static/heartbeats.js" defer></script>
   <script src="/static/operations.js" defer></script>
   <script src="/static/app.js" defer></script>

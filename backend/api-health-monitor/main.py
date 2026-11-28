@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.agents import router as agents_router
+from app.api.routes.email_settings import router as email_settings_router
 from app.api.routes.endpoints import router as endpoints_router
 from app.api.routes.heartbeats import router as heartbeats_router
 from app.api.routes.integrations import router as integrations_router
@@ -160,4 +161,5 @@ app.include_router(endpoints_router, prefix=settings.API_V1_PREFIX)
 app.include_router(heartbeats_router, prefix=settings.API_V1_PREFIX)
 app.include_router(integrations_router, prefix=settings.API_V1_PREFIX)
 app.include_router(public_status_router)
+app.include_router(email_settings_router)
 app.include_router(agents_router, prefix=settings.API_V1_PREFIX)

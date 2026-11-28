@@ -1603,3 +1603,27 @@ body:not([data-role="admin"], [data-role="member"]) :is(#add-button, #add-heartb
 .trend-bar-track { display: flex; align-items: flex-end; height: 32px; background: var(--surface-muted); border-radius: 4px; overflow: hidden; }
 .trend-bar-track span { width: 100%; background: var(--primary); }
 @media (max-width: 760px) { .trend-tables { grid-template-columns: minmax(0, 1fr); } }
+
+.email-recipients {
+  display: grid;
+  gap: 1rem;
+}
+
+.email-recipient {
+  display: grid;
+  gap: .65rem;
+  overflow-wrap: anywhere;
+}
+
+.email-recipient h3,
+.email-recipient p {
+  margin: 0;
+}
+
+.email-recipient fieldset {
+  border: 1px solid var(--border, #b3c1d3);
+  border-radius: .5rem;
+  display: grid;
+  gap: .35rem;
+  padding: .5rem .75rem;
+}
