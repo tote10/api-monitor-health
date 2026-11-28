@@ -444,3 +444,28 @@ def workspace_trends(db: Session, owner_id: int | None, now: datetime) -> list[d
             "average_latency_ms": round(latency) if latency is not None else None,
         })
     return result
+
+
+def recent_check_series(db: Session, endpoint_ids: list[int], now: datetime) -> dict[int, list[dict]]:
+    """Return up to 24 recent observations per monitor, most recent last."""
+    if not endpoint_ids:
+        return {}
+    ranked = select(
+        CheckResult.endpoint_id, CheckResult.checked_at, CheckResult.is_success, CheckResult.response_time_ms,
+        CheckResult.failure_kind, CheckResult.id,
+        func.row_number().over(
+            partition_by=CheckResult.endpoint_id,
+            order_by=(CheckResult.checked_at.desc(), CheckResult.id.desc()),
+        ).label("position"),
+    ).where(CheckResult.endpoint_id.in_(endpoint_ids), CheckResult.checked_at >= now - timedelta(hours=24)).subquery()
+    series = {}
+    for row in db.execute(select(ranked).where(ranked.c.position <= 24).order_by(
+        ranked.c.endpoint_id, ranked.c.position.desc(),
+    )):
+        known = row.failure_kind != "unconfigured"
+        series.setdefault(row.endpoint_id, []).append({
+            "at": row.checked_at,
+            "ok": row.is_success if known else None,
+            "latency_ms": row.response_time_ms if known else None,
+        })
+    return series

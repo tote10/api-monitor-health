@@ -7,6 +7,7 @@
   var state = {
     endpoints: [],
     statuses: new Map(),
+    recentChecks: new Map(),
     loading: false,
     editingId: null,
     search: "",
@@ -262,7 +263,7 @@
     var heartbeat = endpoint.kind === "heartbeat";
     var privateAgent = endpoint.kind === "agent";
     var activeLabel = endpoint.is_active ? "Pause" : "Resume";
-    var uptime = status ? formatUptime(status.uptime_percentage) : "—";
+    var uptime = status?.uptime_percentage == null ? "Unknown" : formatUptime(status.uptime_percentage);
     var checkCount = status ? status.total_checks : 0;
 
     return (
@@ -280,8 +281,8 @@
                   escapeHtml(endpoint.url) + '">' + escapeHtml(endpoint.url) + '</a>') +
             "</div>" +
           "</div>" +
-          '<span class="badge badge-' + kind + '">' + (kind === "pending" && status?.agent_offline ? "Agent offline" :
-            status?.is_stale && kind === "pending" ? "Stale" : statusLabels[kind]) + "</span>" +
+          window.monitorVisuals.badge(kind, kind === "pending" && status?.agent_offline ? "Unknown · Agent offline" :
+            status?.is_stale && kind === "pending" ? "Unknown · Stale" : statusLabels[kind]) +
         "</div>" +
         ((endpoint.service_group || endpoint.tags.length) ? '<div class="monitor-tags">' +
           [endpoint.service_group, ...endpoint.tags].filter(Boolean).map(function (tag) {
@@ -289,10 +290,11 @@
           }).join("") + '</div>' : "") +
         '<div class="card-metrics">' +
           '<div><span class="metric-label">Last check</span><span class="metric-value" title="' + escapeHtml(formatTimestamp(lastChecked)) + '">' + formatTimeAgo(lastChecked) + "</span></div>" +
-          '<div><span class="metric-label">Response</span><span class="metric-value">' + formatResponseTime(status ? status.last_response_time_ms : null) + (status?.is_slow ? " · Slow" : "") + "</span></div>" +
+          '<div><span class="metric-label">Response</span><span class="metric-value">' + (status?.last_response_time_ms == null ? "Unknown" : formatResponseTime(status.last_response_time_ms)) + (status?.is_slow ? " · Slow" : "") + "</span></div>" +
           '<div><span class="metric-label">Uptime</span><span class="metric-value" title="' + checkCount + ' checks">' + uptime + "</span></div>" +
           '<div><span class="metric-label">Schedule</span><span class="metric-value">' + formatInterval(endpoint.interval_seconds) + "</span></div>" +
         "</div>" +
+        window.monitorVisuals.checkCharts(state.recentChecks.get(endpoint.id) || []) +
         (error
           ? '<div class="card-error">' + warningIcon() + "<span>" + escapeHtml(error) + "</span></div>"
           : "") +
@@ -399,11 +401,15 @@
         state.statuses = new Map(data.monitors.map(function (item) {
           return [item.endpoint.id, item.status];
         }));
+        state.recentChecks = new Map(data.monitors.map(function (item) {
+          return [item.endpoint.id, item.recent_checks];
+        }));
         elements.errorBanner.hidden = true;
         elements.loading.hidden = true;
         state.loaded = true;
         overviewSync.textContent = "Updated " + new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
         render();
+        window.monitorOperations.renderActiveIncidents(data.active_incidents);
         window.monitorOperations.refreshIncidents();
         window.monitorOperations.renderRecentFailures(data.recent_failures);
         window.monitorOperations.renderWorkspaceTrends(data.trends, data.maintenance);

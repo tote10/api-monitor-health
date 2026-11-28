@@ -69,6 +69,15 @@
           <div class="overview-legend" id="overview-legend"></div>
         </div>
       </section>
+      <section class="panel active-incidents" id="active-incidents" aria-labelledby="active-incidents-heading">
+        <div class="panel-head">
+          <div>
+            <h2 id="active-incidents-heading">Active incidents</h2>
+            <p class="results-count" id="active-incident-summary" role="status">Loading incidents…</p>
+          </div>
+        </div>
+        <ul class="account-list operations-content" id="active-incident-list"></ul>
+      </section>
       <section class="summary-grid" aria-label="Monitoring summary">
         <article class="summary-card">
           <div class="summary-icon summary-icon-total" aria-hidden="true">
@@ -129,15 +138,15 @@
       <section class="panel operations-panel" aria-labelledby="operations-heading">
         <div class="panel-head">
           <div>
-            <h2 id="operations-heading">Incidents</h2>
+            <h2 id="operations-heading">Incident history</h2>
             <p class="results-count" id="operations-summary" role="status">Loading incidents…</p>
           </div>
           <label class="filter-box">
             <span class="visually-hidden">Incident state</span>
             <select id="incident-filter">
-              <option value="open">Open incidents</option>
-              <option value="resolved">Resolved incidents</option>
               <option value="all">All incidents</option>
+              <option value="resolved">Resolved incidents</option>
+              <option value="open">Open incidents</option>
             </select>
           </label>
         </div>
@@ -488,6 +497,10 @@
       <button class="icon-button" type="button" data-close-dialog="incident-dialog" aria-label="Close dialog">×</button>
     </div>
     <div id="incident-detail" class="operations-content"></div>
+    <section class="incident-timeline-panel" aria-labelledby="timeline-heading">
+      <h3 id="timeline-heading">Timeline</h3>
+      <div id="incident-timeline"></div>
+    </section>
     <div id="incident-related" class="advanced-config" hidden></div>
     <div id="incident-deployments" class="advanced-config" hidden></div>
     <p id="incident-action-status" role="status"></p>
@@ -591,6 +604,7 @@
   <script src="/static/workspace-settings.js" defer></script>
   <script src="/static/email-settings.js" defer></script>
   <script src="/static/heartbeats.js" defer></script>
+  <script src="/static/monitor-visuals.js" defer></script>
   <script src="/static/operations.js" defer></script>
   <script src="/static/app.js" defer></script>
 </body>

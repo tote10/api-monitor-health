@@ -1627,3 +1627,88 @@ body:not([data-role="admin"], [data-role="member"]) :is(#add-button, #add-heartb
   gap: .35rem;
   padding: .5rem .75rem;
 }
+
+.active-incidents.has-incidents {
+  border-inline-start: 4px solid #dc5c5c;
+}
+
+.service-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(5.5rem, 1fr);
+  gap: .85rem;
+  padding-block: .25rem;
+}
+
+.check-strip {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 2px;
+  margin-top: .3rem;
+}
+
+.check-cell {
+  border-radius: 2px;
+  text-align: center;
+  font-size: .56rem;
+  line-height: 1.1rem;
+  background: #344152;
+  color: #d7e4f2;
+  overflow: hidden;
+}
+
+.check-passed { background: #156654; color: #fff; }
+.check-failed { background: #ac3e49; color: #fff; }
+
+.sparkline-row {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  min-height: 1.25rem;
+}
+
+.latency-sparkline {
+  width: 100%;
+  min-width: 2rem;
+  height: 1.25rem;
+  flex: 1;
+  color: #508de2;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.sparkline-last {
+  font-size: .72rem;
+  white-space: nowrap;
+}
+
+.incident-timeline {
+  list-style: none;
+  margin: .75rem 0 1rem;
+  padding: 0;
+}
+
+.incident-timeline li {
+  display: grid;
+  grid-template-columns: 1.6rem 1fr;
+  gap: .65rem;
+  padding: .5rem 0;
+  overflow-wrap: anywhere;
+}
+
+.incident-timeline time {
+  display: block;
+  font-size: .82rem;
+}
+
+.timeline-icon {
+  display: grid;
+  place-items: center;
+  align-self: start;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: #33465d;
+  color: #fff;
+}
+.timeline-failed_check .timeline-icon { background: #ac3e49; }
+.timeline-recovered .timeline-icon { background: #156654; }

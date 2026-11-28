@@ -42,22 +42,41 @@ window.monitorOperations = (() => {
     try {
       const incidents = await request("/operations/incidents?incident_state=" + get("incident-filter").value);
       if (version !== listRequest) return;
-      list.replaceChildren(...incidents.map((incident) => {
-        const row = node("li", "");
-        const text = node("div", "");
-        text.append(node("strong", incident.endpoint_name),
-          node("small", (incident.recovered_at ? "Resolved" : incident.acknowledged_at ? "Acknowledged" : "Open") +
-            " · " + date(incident.opened_at)));
-        const button = node("button", "View incident");
-        button.type = "button";
-        button.className = "action-button";
-        button.addEventListener("click", () => openIncident(incident.endpoint_id, incident.id));
-        row.append(text, button);
-        return row;
-      }));
+      list.replaceChildren(...incidents.map(incidentRow));
       summary.textContent = incidents.length ? "Showing " + incidents.length : "No incidents match this filter.";
     } catch (error) {
       if (version === listRequest) summary.textContent = error.message;
+    }
+  }
+
+  function incidentRow(incident) {
+    const row = node("li", "");
+    const text = node("div", "");
+    const label = incident.recovered_at ? "✓ Resolved" : incident.acknowledged_at ? "✓ Acknowledged" : "! Open";
+    text.append(node("strong", incident.endpoint_name), node("small", label + " · " + date(incident.opened_at)));
+    const button = node("button", "View incident");
+    button.type = "button";
+    button.className = "action-button";
+    button.addEventListener("click", () => openIncident(incident.endpoint_id, incident.id));
+    row.append(text, button);
+    return row;
+  }
+
+  function renderActiveIncidents(incidents) {
+    get("active-incident-list").replaceChildren(...incidents.map(incidentRow));
+    get("active-incidents").classList.toggle("has-incidents", Boolean(incidents.length));
+    get("active-incident-summary").textContent = incidents.length
+      ? (incidents.length === 50 ? "50 or more" : incidents.length) + " open"
+      : "No active incidents.";
+  }
+
+  async function refreshTimeline(version) {
+    const container = get("incident-timeline");
+    try {
+      const data = await request(selectedIncident + "/timeline");
+      if (version === incidentRequest) window.monitorVisuals.timeline(container, data);
+    } catch (error) {
+      if (version === incidentRequest) container.textContent = error.message;
     }
   }
 
@@ -90,6 +109,7 @@ window.monitorOperations = (() => {
     const version = ++incidentRequest;
     selectedIncident = "/" + endpointId + "/incident-records/" + incidentId;
     get("incident-detail").textContent = "Loading incident…";
+    get("incident-timeline").textContent = "Loading timeline…";
     get("incident-deployments").hidden = true;
     get("incident-related").hidden = true;
     get("incident-action-status").textContent = "";
@@ -102,6 +122,7 @@ window.monitorOperations = (() => {
       const incident = await request(selectedIncident);
       if (version !== incidentRequest) return;
       renderIncident(incident);
+      refreshTimeline(version);
       const [markers, related] = await Promise.all([
         request(selectedIncident + "/deployments"), request(selectedIncident + "/related")
       ]);
@@ -138,9 +159,11 @@ window.monitorOperations = (() => {
       const incident = await request(selectedIncident + "/" + action, method, body);
       if (version === incidentRequest) {
         renderIncident(incident);
+        refreshTimeline(version);
         get("incident-note-form").reset();
       }
       refreshIncidents();
+      request("/operations/incidents?incident_state=open").then(renderActiveIncidents).catch(() => {});
     } catch (error) {
       if (version === incidentRequest) get("incident-action-status").textContent = error.message;
     } finally {
@@ -286,5 +309,5 @@ window.monitorOperations = (() => {
       : [node("li", "No active or upcoming maintenance windows.")]));
   }
 
-  return {refreshIncidents, renderRecentFailures, renderWorkspaceTrends, openMaintenance, openIncident};
+  return {refreshIncidents, renderActiveIncidents, renderRecentFailures, renderWorkspaceTrends, openMaintenance, openIncident};
 })();

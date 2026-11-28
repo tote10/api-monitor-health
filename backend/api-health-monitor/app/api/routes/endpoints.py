@@ -91,6 +91,10 @@ def workspace_incidents(
     limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
+    return list_workspace_incidents(db, owner_id, incident_state, limit)
+
+
+def list_workspace_incidents(db: Session, owner_id: int | None, incident_state: str, limit: int) -> list[dict]:
     statement = (
         select(Incident, Endpoint.name)
         .join(Endpoint, Incident.endpoint_id == Endpoint.id)
@@ -111,6 +115,7 @@ def workspace_incidents(
 def overview(owner_id: WorkspaceOwner, db: Session = Depends(get_db)):
     monitors = monitor_service.dashboard_statuses(db, owner_id)
     now = datetime.now(timezone.utc)
+    series = monitor_service.recent_check_series(db, [endpoint.id for endpoint, _ in monitors], now)
     recent = db.execute(select(CheckResult, Endpoint.name).join(
         Endpoint, Endpoint.id == CheckResult.endpoint_id,
     ).where(
@@ -125,6 +130,7 @@ def overview(owner_id: WorkspaceOwner, db: Session = Depends(get_db)):
     ).order_by(MaintenanceWindow.starts_at).limit(20))
     return {
         "trends": monitor_service.workspace_trends(db, owner_id, now),
+        "active_incidents": list_workspace_incidents(db, owner_id, "open", 50),
         "maintenance": [{
             "service": name, "starts_at": window.starts_at, "ends_at": window.ends_at,
             "title": window.title,
@@ -132,6 +138,7 @@ def overview(owner_id: WorkspaceOwner, db: Session = Depends(get_db)):
         "monitors": [{
             "endpoint": EndpointResponse.model_validate(endpoint).model_dump(),
             "status": summary.model_dump(),
+            "recent_checks": series.get(endpoint.id, []),
         } for endpoint, summary in monitors],
         "recent_failures": [{
             "service": name, "checked_at": result.checked_at, "reason": result.error,
@@ -273,6 +280,13 @@ def get_incident_record(
     return _incident_or_404(db, endpoint_id, incident_id)
 
 
+@router.get("/{endpoint_id}/incident-records/{incident_id}/timeline")
+def get_incident_timeline(endpoint_id: int, incident_id: int, owner_id: WorkspaceOwner,
+                          db: Session = Depends(get_db)):
+    _get_endpoint_or_404(db, endpoint_id, owner_id)
+    return incident_service.incident_timeline(db, _incident_or_404(db, endpoint_id, incident_id))
+
+
 @router.post("/{endpoint_id}/incident-records/{incident_id}/acknowledge", response_model=IncidentRecord)
 def acknowledge_incident(
     endpoint_id: int, incident_id: int, owner_id: WorkspaceOwner, db: Session = Depends(get_db),
@@ -339,7 +353,7 @@ def list_deliveries(endpoint_id: int, owner_id: WorkspaceOwner, db: Session = De
     return [{
         "id": row.id, "event": row.payload["event"], "channel": row.channel, "state": row.state,
         "attempts": row.attempts, "created_at": row.created_at, "next_attempt_at": row.next_attempt_at,
-        "last_error": row.last_error, "last_attempt_at": row.last_attempt_at,
+        "last_error": row.last_error, "last_attempt_at": row.last_attempt_at, "accepted_at": row.accepted_at,
     } for row in deliveries]
 
 

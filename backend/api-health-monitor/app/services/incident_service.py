@@ -91,3 +91,53 @@ def transition_incident(db: Session, endpoint: Endpoint, result: CheckResult) ->
     db.add(incident)
     db.flush()
     return incident
+
+
+def incident_timeline(db: Session, incident: Incident) -> dict:
+    from app.db.models import AlertAttempt, AlertDelivery
+
+    limit = 200
+    failures = select(CheckResult).where(
+        CheckResult.endpoint_id == incident.endpoint_id, CheckResult.is_success.is_(False),
+        CheckResult.checked_at >= incident.first_failed_at,
+    )
+    if incident.recovered_at:
+        failures = failures.where(CheckResult.checked_at <= incident.recovered_at)
+    checks = list(db.scalars(failures.order_by(CheckResult.checked_at.desc(), CheckResult.id.desc()).limit(limit + 1)))
+
+    deliveries = list(db.scalars(select(AlertDelivery).where(
+        AlertDelivery.endpoint_id == incident.endpoint_id, AlertDelivery.incident_id == incident.id,
+    ).order_by(AlertDelivery.id.desc()).limit(limit + 1)))
+    attempts = db.scalars(select(AlertAttempt).where(
+        AlertAttempt.delivery_id.in_([item.id for item in deliveries[:limit]]),
+    ).order_by(AlertAttempt.started_at.desc()).limit(limit + 1)).all()
+
+    events = [{"kind": "failed_check", "at": check.checked_at, "detail": check.error or "Check failed"}
+              for check in checks[:limit]]
+    events.append({"kind": "opened", "at": incident.opened_at, "detail": "Incident opened"})
+    if incident.acknowledged_at:
+        events.append({"kind": "acknowledged", "at": incident.acknowledged_at, "detail": "Incident acknowledged"})
+    if incident.recovered_at:
+        events.append({"kind": "recovered", "at": incident.recovered_at, "detail": "Service recovered"})
+
+    by_id = {delivery.id: delivery for delivery in deliveries}
+    for attempt in attempts[:limit]:
+        delivery = by_id[attempt.delivery_id]
+        events.append({
+            "kind": "notification", "at": attempt.started_at, "channel": delivery.channel,
+            "event": delivery.payload["event"], "outcome": attempt.outcome, "number": attempt.number,
+            "detail": attempt.error, "finished_at": attempt.finished_at,
+        })
+    seen = {attempt.delivery_id for attempt in attempts}
+    for delivery in deliveries[:limit]:
+        if delivery.id in seen or (len(attempts) > limit and delivery.attempts):
+            continue
+        events.append({
+            "kind": "notification", "at": delivery.last_attempt_at or delivery.created_at,
+            "channel": delivery.channel, "event": delivery.payload["event"],
+            "outcome": delivery.state, "number": delivery.attempts, "detail": delivery.last_error,
+        })
+    return {
+        "events": sorted(events, key=lambda event: event["at"]),
+        "truncated": max(len(checks), len(deliveries), len(attempts)) > limit,
+    }
