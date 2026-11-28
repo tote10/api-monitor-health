@@ -1,4 +1,5 @@
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +24,8 @@ class Settings(BaseSettings):
     MONITOR_CONFIG_KEY: SecretStr | None = None
     PUBLIC_BASE_URL: str = ""
 
+    DEMO_ENABLED: bool = False
+
     ALERT_WEBHOOK_URL: SecretStr | None = None
     ALERT_EMAIL_TO: str = ""
     SMTP_HOST: str = ""
@@ -36,8 +39,13 @@ class Settings(BaseSettings):
     def validate_email_alert_settings(self):
         if self.ALLOW_LOOPBACK_TARGETS and self.ENVIRONMENT != "development":
             raise ValueError("ALLOW_LOOPBACK_TARGETS requires ENVIRONMENT=development")
-        if self.SMTP_HOST and not (self.SMTP_FROM and self.ALERT_EMAIL_TO):
-            raise ValueError("Set SMTP_FROM and ALERT_EMAIL_TO when SMTP_HOST is configured")
+        if self.SMTP_HOST and not self.SMTP_FROM:
+            raise ValueError("Set SMTP_FROM when SMTP_HOST is configured")
+        if self.PUBLIC_BASE_URL:
+            base = urlsplit(self.PUBLIC_BASE_URL)
+            if (base.scheme not in {"http", "https"} or not base.hostname or base.username is not None
+                    or base.query or base.fragment):
+                raise ValueError("PUBLIC_BASE_URL must be an HTTP(S) base URL")
         if self.SMTP_HOST and bool(self.SMTP_USERNAME) != bool(self.SMTP_PASSWORD):
             raise ValueError("Set both SMTP_USERNAME and SMTP_PASSWORD for SMTP sign-in")
         return self

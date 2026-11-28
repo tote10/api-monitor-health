@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    UniqueConstraint,
     Boolean,
     DateTime,
     Float,
@@ -103,6 +104,8 @@ class Endpoint(Base):
         back_populates="endpoint",
         cascade="all, delete-orphan",
     )
+    email_recipients: Mapped[list["EmailRecipient"]] = relationship(cascade="all, delete-orphan")
+    email_monitors: Mapped[list["EmailMonitor"]] = relationship(cascade="all, delete-orphan")
     alert_deliveries: Mapped[list["AlertDelivery"]] = relationship(
         cascade="all, delete-orphan",
     )
@@ -155,6 +158,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True)
     password_hash: Mapped[str] = mapped_column(String(160))
     role: Mapped[str] = mapped_column(String(16))
+    email_recipients: Mapped[list["EmailRecipient"]] = relationship(cascade="all, delete-orphan")
 
 
 class LoginSession(Base):
@@ -165,6 +169,33 @@ class LoginSession(Base):
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
 
 
+class EmailRecipient(Base):
+    __tablename__ = "email_recipients"
+    __table_args__ = (UniqueConstraint("scope", "address", name="uq_email_recipients_scope_address"),)
+
+    selections: Mapped[list["EmailMonitor"]] = relationship(cascade="all, delete-orphan")
+    deliveries: Mapped[list["AlertDelivery"]] = relationship(cascade="all, delete-orphan")
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scope: Mapped[str] = mapped_column(String(64))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    public_endpoint_id: Mapped[int | None] = mapped_column(ForeignKey("endpoints.id", ondelete="CASCADE"), index=True)
+    address: Mapped[str] = mapped_column(String(254))
+    verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    confirmation_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    confirmation_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    unsubscribe_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    disabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    weekly_digest: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+
+
+class EmailMonitor(Base):
+    __tablename__ = "email_monitors"
+
+    recipient_id: Mapped[int] = mapped_column(ForeignKey("email_recipients.id", ondelete="CASCADE"), primary_key=True)
+    endpoint_id: Mapped[int] = mapped_column(ForeignKey("endpoints.id", ondelete="CASCADE"), primary_key=True, index=True)
+
+
 class AlertDelivery(Base):
     __tablename__ = "alert_deliveries"
     __table_args__ = (
@@ -172,14 +203,18 @@ class AlertDelivery(Base):
         Index("ix_alert_deliveries_endpoint_channel", "endpoint_id", "channel", "id"),
     )
 
+    attempt_history: Mapped[list["AlertAttempt"]] = relationship(cascade="all, delete-orphan")
+
     id: Mapped[int] = mapped_column(primary_key=True)
-    endpoint_id: Mapped[int] = mapped_column(ForeignKey("endpoints.id", ondelete="CASCADE"))
+    endpoint_id: Mapped[int | None] = mapped_column(ForeignKey("endpoints.id", ondelete="CASCADE"))
     channel: Mapped[str] = mapped_column(String(16))
     payload: Mapped[dict] = mapped_column(JSON)
     state: Mapped[str] = mapped_column(String(16), default="pending")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     next_attempt_at: Mapped[datetime] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), server_default=func.now())
+    accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    recipient_id: Mapped[int | None] = mapped_column(ForeignKey("email_recipients.id", ondelete="CASCADE"), index=True)
     integration_id: Mapped[int | None] = mapped_column(Integer)
     incident_id: Mapped[int | None] = mapped_column(Integer)
     dedup_key: Mapped[str | None] = mapped_column(String(120), index=True, unique=True)
@@ -187,6 +222,17 @@ class AlertDelivery(Base):
     last_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     delivery_token: Mapped[str | None] = mapped_column(String(32))
     delivery_lease_until: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class AlertAttempt(Base):
+    __tablename__ = "alert_attempts"
+
+    delivery_id: Mapped[int] = mapped_column(ForeignKey("alert_deliveries.id", ondelete="CASCADE"), primary_key=True)
+    number: Mapped[int] = mapped_column(primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    outcome: Mapped[str] = mapped_column(String(16), default="in_progress")
+    error: Mapped[str | None] = mapped_column(String(60))
 
 
 class Incident(Base):
@@ -227,6 +273,7 @@ class AccountInvite(Base):
 
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     role: Mapped[str] = mapped_column(String(16))
+    email_recipients: Mapped[list["EmailRecipient"]] = relationship(cascade="all, delete-orphan")
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
 
 
