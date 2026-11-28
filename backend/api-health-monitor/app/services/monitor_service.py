@@ -57,7 +57,7 @@ def create_http_client() -> httpx.AsyncClient:
 
 
 async def check_endpoint(
-    endpoint: Endpoint, client: httpx.AsyncClient
+    endpoint: Endpoint, client: httpx.AsyncClient, *, fetch=None,
 ) -> CheckResult:
     """Call an endpoint once and build an unsaved check result."""
     if endpoint.kind == "heartbeat":
@@ -72,7 +72,7 @@ async def check_endpoint(
             options = RequestOptions.model_validate_json(
                 monitor_cipher().decrypt(endpoint.request_config.encode())
             )
-        result = await execute_http_check(client, endpoint, options)
+        result = await execute_http_check(client, endpoint, options, fetch=fetch)
     except (InvalidToken, ValueError):
         result = Observation(None, "configuration", "Request settings could not be loaded")
 
@@ -93,15 +93,17 @@ async def check_endpoint(
     )
 
 
-async def perform_check(db: Session, endpoint: Endpoint) -> CheckResult:
+async def perform_check(
+    db: Session, endpoint: Endpoint, *, probe=None, demo: bool = False,
+) -> CheckResult:
     """Run a check immediately and persist the result."""
     token = claim_check(db, endpoint, _utcnow(), automatic=False)
     if token is None:
         raise CheckInProgress
     try:
         async with create_http_client() as client:
-            result = await check_endpoint(endpoint, client)
-        if not release_claim(db, endpoint.id, token) or not save_check_results(db, [result]):
+            result = await (probe or check_endpoint)(endpoint, client)
+        if not release_claim(db, endpoint.id, token) or not save_check_results(db, [result], demo=demo):
             raise EndpointRemovedDuringCheck
         db.commit()
         db.refresh(result)

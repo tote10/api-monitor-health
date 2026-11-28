@@ -44,8 +44,8 @@ def in_maintenance(db: Session, endpoint_id: int, at: datetime) -> bool:
     ).limit(1)) is not None
 
 
-def save_check_results(db: Session, results: list[CheckResult], *, demo_base: str | None = None) -> int:
-    channels = enabled_channels() if demo_base is None else ()
+def save_check_results(db: Session, results: list[CheckResult], *, demo: bool = False) -> int:
+    channels = enabled_channels() if not demo else ()
     # Global email is a legacy shared-workspace destination.
     if not settings.ALERT_EMAIL_TO:
         channels = tuple(channel for channel in channels if channel != "email")
@@ -90,9 +90,9 @@ def save_check_results(db: Session, results: list[CheckResult], *, demo_base: st
         if settings.PUBLIC_BASE_URL:
             payload["incident_url"] = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/?endpoint={endpoint.id}&incident={incident.id}"
         now = datetime.now(timezone.utc)
-        if demo_base is None:
+        if not demo:
             queue_integrations(db, endpoint, incident, payload, now)
-        managed_addresses = queue_incident_emails(db, endpoint, incident, result, now, links_base=demo_base)
+        managed_addresses = queue_incident_emails(db, endpoint, incident, result, now, demo=demo)
         email_payload = {
             "event": payload["event"], "endpoint_name": endpoint.name,
             "checked_at": payload["checked_at"], "detected_at": incident.opened_at.isoformat(),

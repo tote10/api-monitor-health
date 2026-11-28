@@ -97,11 +97,11 @@ def queue_confirmation(db: Session, recipient: EmailRecipient, now: datetime,
 
 def queue_incident_emails(
     db: Session, endpoint: Endpoint, incident: Incident, check: CheckResult, now: datetime,
-    *, links_base: str | None = None,
+    *, demo: bool = False,
 ) -> set[str]:
-    if links_base is None and not email_ready():
+    if not demo and not email_ready():
         return set()
-    base = settings.PUBLIC_BASE_URL.rstrip("/") if links_base is None else links_base
+    base = settings.PUBLIC_BASE_URL.rstrip("/")
     event = "endpoint.recovered" if check.is_success else "endpoint.down"
     payload = {
         "event": event, "checked_at": check.checked_at.isoformat(), "detected_at": incident.opened_at.isoformat(),
@@ -125,10 +125,10 @@ def queue_incident_emails(
     for recipient in recipients:
         queue_incident_email(db, recipient, endpoint, incident, {
             **payload, "endpoint_name": service_name(endpoint.name),
-            "incident_url": f"{base}/?endpoint={endpoint.id}&incident={incident.id}" if links_base is None else "/demo#incident",
+            "incident_url": f"{base}/?endpoint={endpoint.id}&incident={incident.id}" if not demo else "/demo#incident",
         }, now, addresses)
 
-    page = published_page(db, endpoint) if links_base is None else None
+    page = published_page(db, endpoint) if not demo else None
     if page:
         public_recipients = db.scalars(select(EmailRecipient).where(
             EmailRecipient.public_endpoint_id == endpoint.id,

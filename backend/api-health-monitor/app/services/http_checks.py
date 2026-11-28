@@ -56,13 +56,13 @@ def render_fields(fields: RequestFields, variables: dict[str, str]) -> RequestFi
 async def observe(
     client: httpx.AsyncClient, url: str, timeout: int, method: str,
     fields: RequestFields, expected: list[int], extraction: dict[str, str] | None = None,
-    variables: dict[str, str] | None = None,
+    variables: dict[str, str] | None = None, *, fetch=None,
 ) -> Observation:
     code = None
     try:
         if variables is not None:
             fields = render_fields(fields, variables)
-        response = await fetch_public_url(
+        response = await (fetch or fetch_public_url)(
             client, url, timeout, method=method, headers=fields.headers, body=fields.body,
             read_body=bool(extraction) or fields.contains is not None,
         )
@@ -89,11 +89,13 @@ async def observe(
         return Observation(code, "assertion", "JSON extraction did not yield a supported value")
 
 
-async def execute_http_check(client: httpx.AsyncClient, endpoint: Endpoint, options: RequestOptions) -> Observation:
+async def execute_http_check(
+    client: httpx.AsyncClient, endpoint: Endpoint, options: RequestOptions, *, fetch=None,
+) -> Observation:
     if not options.steps:
         return await observe(
             client, endpoint.url, endpoint.timeout_seconds, endpoint.method,
-            options, endpoint.expected_status_codes or [endpoint.expected_status_code],
+            options, endpoint.expected_status_codes or [endpoint.expected_status_code], fetch=fetch,
         )
 
     variables = {}
@@ -104,7 +106,7 @@ async def execute_http_check(client: httpx.AsyncClient, endpoint: Endpoint, opti
             for number, step in enumerate(options.steps, 1):
                 result = await observe(
                     client, str(step.url), step.timeout_seconds, step.method,
-                    step, step.expected_status_codes, step.extract, variables,
+                    step, step.expected_status_codes, step.extract, variables, fetch=fetch,
                 )
                 expiry = result.certificate_expires_at
                 if expiry and (earliest_expiry is None or expiry < earliest_expiry):

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Incident response demo | API Health Monitor</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/monitor-visuals.js" defer></script>
+  <script src="/static/demo.js" defer></script>
+</head>
+<body>
+  <main class="app-shell demo-shell">
+    <header class="overview demo-overview">
+      <div class="overview-copy">
+        <p class="overview-label">API Health Monitor</p>
+        <h1>Incident response demo</h1>
+        <p>Run a check against the demo API and follow the incident through recovery. Emails appear in the local preview.</p>
+        <div class="overview-actions">
+          <button class="button button-primary" type="button" id="simulate-outage" data-demo-action="outage" disabled>Simulate outage</button>
+          <button class="button overview-refresh" type="button" id="restore-service" data-demo-action="restore" disabled>Restore service</button>
+        </div>
+      </div>
+    </header>
+    <p id="demo-result" role="status">Starting demo…</p>
+    <div class="demo-grid">
+      <div class="demo-stack">
+        <section class="endpoint-card" aria-labelledby="demo-service">
+          <div class="card-top">
+            <h2 id="demo-service">Demo API</h2>
+            <div id="demo-health"></div>
+          </div>
+          <p id="demo-uptime">Uptime unknown</p>
+          <div id="demo-charts"></div>
+        </section>
+        <section class="panel active-incidents" id="incident" aria-labelledby="demo-incident-heading">
+          <h2 id="demo-incident-heading">Incident timeline</h2>
+          <p id="demo-incident-state"></p>
+          <div id="demo-timeline"></div>
+        </section>
+      </div>
+      <section class="panel demo-inbox" aria-labelledby="demo-inbox-heading">
+        <h2 id="demo-inbox-heading">Captured emails</h2>
+        <p id="demo-empty-inbox">Simulate an outage to capture the first email.</p>
+        <div id="demo-inbox" hidden>
+          <label>Email <select id="demo-message"></select></label>
+          <label>Format <select id="demo-format">
+            <option value="html">HTML</option><option value="text">Plain text</option>
+          </select></label>
+          <p id="demo-recipient"></p>
+          <iframe id="demo-email-html" sandbox title="Captured HTML email"></iframe>
+          <pre id="demo-email-text" hidden></pre>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import asyncio
+import re
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, Request
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.routes.agents import router as agents_router
+from app.api.routes.demo import router as demo_router
 from app.api.routes.email_settings import router as email_settings_router
 from app.api.routes.endpoints import router as endpoints_router
 from app.api.routes.heartbeats import router as heartbeats_router
@@ -79,7 +81,12 @@ def root(request: Request, db: Session = Depends(get_db)):
     """Serve the dashboard to browsers and status JSON to API clients."""
     if "text/html" in request.headers.get("accept", ""):
         if session_user(request, db) is None:
-            return RedirectResponse("/login", headers={"Cache-Control": "no-store"})
+            endpoint = request.query_params.get("endpoint", "")
+            incident = request.query_params.get("incident", "")
+            login = "/login"
+            if re.fullmatch(r"[0-9]{1,10}", endpoint) and re.fullmatch(r"[0-9]{1,10}", incident):
+                login += f"?endpoint={endpoint}&incident={incident}"
+            return RedirectResponse(login, headers={"Cache-Control": "no-store"})
         return page_response("index.html")
 
     payload = {
@@ -157,6 +164,7 @@ def openapi():
 
 
 app.include_router(auth_router)
+app.include_router(demo_router)
 app.include_router(endpoints_router, prefix=settings.API_V1_PREFIX)
 app.include_router(heartbeats_router, prefix=settings.API_V1_PREFIX)
 app.include_router(integrations_router, prefix=settings.API_V1_PREFIX)

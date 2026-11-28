@@ -44,7 +44,7 @@ window.monitorVisuals = (() => {
     </div>`;
   }
 
-  function timeline(container, timelineData) {
+  function timeline(container, timelineData, {capture = false} = {}) {
     const events = timelineData.events;
     const order = document.createElement("ol");
     order.className = "incident-timeline";
@@ -53,7 +53,7 @@ window.monitorVisuals = (() => {
       acknowledged: ["✓", "Acknowledged"], recovered: ["✓", "Recovered"], notification: ["↗", "Notification"],
     };
     const outcomes = {
-      pending: "Queued", accepted: "Accepted by provider", sent: "Sent (legacy record)",
+      pending: "Queued", accepted: capture ? "Captured locally" : "Accepted by provider", sent: "Sent (legacy record)",
       failed: "Failed", unknown: "Outcome unknown", canceled: "Canceled", in_progress: "In progress",
     };
     const eventLabels = {"endpoint.down": "Outage", "endpoint.recovered": "Recovery", "endpoint.escalated": "Escalation"};

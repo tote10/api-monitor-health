@@ -1712,3 +1712,19 @@ body:not([data-role="admin"], [data-role="member"]) :is(#add-button, #add-heartb
 }
 .timeline-failed_check .timeline-icon { background: #ac3e49; }
 .timeline-recovered .timeline-icon { background: #156654; }
+
+.demo-shell { max-width: 1130px; margin-inline: auto; padding: 1rem; }
+.demo-overview { display: block; }
+.demo-overview h1 { margin: .25rem 0; }
+.demo-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.demo-stack { display: grid; gap: 1rem; }
+.demo-inbox, .demo-stack section { min-width: 0; }
+.demo-grid h2 { font-size: 1.15rem; }
+.demo-inbox iframe { width: 100%; min-height: 26rem; border: 0; border-radius: .65rem; }
+.demo-inbox label { display: block; margin: .5rem 0; }
+.demo-inbox select { max-width: 100%; }
+.demo-inbox pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+@media (max-width: 700px) {
+  .demo-grid { grid-template-columns: minmax(0, 1fr); }
+}

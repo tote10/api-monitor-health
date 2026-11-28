@@ -273,7 +273,6 @@ class AccountInvite(Base):
 
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     role: Mapped[str] = mapped_column(String(16))
-    email_recipients: Mapped[list["EmailRecipient"]] = relationship(cascade="all, delete-orphan")
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
 
 
