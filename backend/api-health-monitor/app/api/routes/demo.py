@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.routes.email_settings import check_write_origin
+from app.core.auth import check_request_origin
 from app.core.config import settings
 from app.db.database import Base
 from app.db.models import EmailMonitor, EmailRecipient, Endpoint, Incident, User
@@ -121,7 +122,7 @@ def demo_page():
     return page_response("demo.html", headers={"X-Robots-Tag": "noindex"})
 
 
-@router.get("/state", dependencies=[Depends(demo_enabled)])
+@router.get("/state", dependencies=[Depends(demo_enabled), Depends(check_request_origin)])
 async def demo_state(request: Request, response: Response):
     demo = find_demo(request)
     if demo is None:

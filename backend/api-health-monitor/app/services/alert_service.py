@@ -8,13 +8,13 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 
 import httpx
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session, aliased
 
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import AlertAttempt, AlertDelivery, AlertIntegration, CheckResult, Endpoint, Incident, MaintenanceWindow
-from app.services.email_content import build_message, public_failure_reason
+from app.services.email_content import build_message, safe_failure_reason
 from app.services.email_notifications import email_destination, queue_incident_emails, queue_weekly_digests
 from app.services.incident_service import transition_incident
 from app.services.monitor_targets import pinned_request, resolve_public_addresses
@@ -92,7 +92,6 @@ def save_check_results(db: Session, results: list[CheckResult], *, demo: bool = 
         now = datetime.now(timezone.utc)
         if not demo:
             queue_integrations(db, endpoint, incident, payload, now)
-        managed_addresses = queue_incident_emails(db, endpoint, incident, result, now, demo=demo)
         email_payload = {
             "event": payload["event"], "endpoint_name": endpoint.name,
             "checked_at": payload["checked_at"], "detected_at": incident.opened_at.isoformat(),
@@ -104,7 +103,8 @@ def save_check_results(db: Session, results: list[CheckResult], *, demo: bool = 
                 duration_seconds=round((incident.recovered_at - incident.first_failed_at).total_seconds()),
             )
         else:
-            email_payload["safe_reason"] = public_failure_reason(result.failure_kind, result.status_code)
+            email_payload["safe_reason"] = safe_failure_reason(result.failure_kind, result.status_code)
+        managed_addresses = queue_incident_emails(db, endpoint, incident, email_payload, now, demo=demo)
         db.add_all(
             AlertDelivery(
                 endpoint_id=endpoint.id,
@@ -247,29 +247,39 @@ async def deliver_pending(
     for delivery in deliveries:
         token = secrets.token_hex(16)
         now = datetime.now(timezone.utc)
+        event = delivery.payload["event"]
+        exhausted = delivery.attempts >= MAX_ATTEMPTS
         with session_factory() as db:
-            claimed = db.execute(update(AlertDelivery).where(
+            claim = update(AlertDelivery).where(
                 AlertDelivery.id == delivery.id, AlertDelivery.state == "pending",
                 AlertDelivery.attempts == delivery.attempts, AlertDelivery.next_attempt_at <= now,
                 or_(AlertDelivery.delivery_lease_until.is_(None), AlertDelivery.delivery_lease_until <= now),
-            ).values(
-                delivery_token=token, delivery_lease_until=now + timedelta(seconds=120),
-                attempts=AlertDelivery.attempts + 1, last_attempt_at=now,
-            )).rowcount
+            )
+            if exhausted:
+                claim = claim.values(
+                    state="failed", last_error="Attempt outcome unknown", delivery_token=None,
+                    delivery_lease_until=None,
+                    payload={"event": event} if event == "email.confirm" else delivery.payload,
+                )
+            else:
+                claim = claim.values(
+                    delivery_token=token, delivery_lease_until=now + timedelta(seconds=120),
+                    attempts=AlertDelivery.attempts + 1, last_attempt_at=now,
+                )
+            claimed = db.execute(claim).rowcount
             if claimed:
                 db.execute(update(AlertAttempt).where(
                     AlertAttempt.delivery_id == delivery.id, AlertAttempt.outcome == "in_progress",
                 ).values(outcome="unknown", finished_at=now))
-                if delivery.attempts < MAX_ATTEMPTS:
+                if not exhausted:
                     db.add(AlertAttempt(delivery_id=delivery.id, number=delivery.attempts + 1, started_at=now))
             db.commit()
-        if not claimed:
+        if not claimed or exhausted:
             continue
         delivery.attempts += 1
         destination = None
         recipient = None
         with session_factory() as db:
-            event = delivery.payload["event"]
             skip_delivery = (
                 delivery.incident_id is not None and in_maintenance(db, delivery.endpoint_id, now)
             ) or (
@@ -303,14 +313,8 @@ async def deliver_pending(
                     attempt.finished_at = now
                 db.commit()
                 continue
-        if delivery.attempts > MAX_ATTEMPTS:
-            with session_factory() as db:
-                db.execute(update(AlertDelivery).where(
-                    AlertDelivery.id == delivery.id, AlertDelivery.delivery_token == token,
-                ).values(state="failed", delivery_token=None, delivery_lease_until=None))
-                db.commit()
-            continue
         last_error = None
+        outcome = "accepted"
         try:
             if destination:
                 kind, ciphertext = destination
@@ -334,6 +338,9 @@ async def deliver_pending(
                 await _send_webhook(delivery.payload, delivery.id)
         except Exception as error:
             last_error, permanent = delivery_error(error)
+            outcome = "unknown" if delivery.channel == "email" and isinstance(
+                error, (TimeoutError, smtplib.SMTPServerDisconnected),
+            ) else "failed"
             # Destination URLs and credentials must stay out of application logs.
             logger.warning(
                 "Alert %s via %s failed on attempt %s (%s)",
@@ -360,7 +367,7 @@ async def deliver_pending(
             if updated:
                 attempt = db.get(AlertAttempt, (delivery.id, delivery.attempts))
                 attempt.finished_at = finished_at
-                attempt.outcome = "failed" if last_error else "accepted"
+                attempt.outcome = outcome
                 attempt.error = last_error
             db.commit()
 
@@ -376,12 +383,14 @@ async def alert_loop(poll_seconds: float) -> None:
                 next_cleanup = now + timedelta(hours=1)
                 with SessionLocal() as db:
                     queue_weekly_digests(db, now)
-                    expired = db.scalars(select(AlertDelivery).where(
+                    expired = (
                         AlertDelivery.state != "pending",
                         AlertDelivery.created_at < now - timedelta(days=30),
+                    )
+                    db.execute(delete(AlertAttempt).where(
+                        AlertAttempt.delivery_id.in_(select(AlertDelivery.id).where(*expired)),
                     ))
-                    for delivery in expired:
-                        db.delete(delivery)
+                    db.execute(delete(AlertDelivery).where(*expired))
                     db.commit()
         except Exception:
             logger.exception("Could not process alert queue")

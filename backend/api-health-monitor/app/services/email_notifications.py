@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import AlertDelivery, CheckResult, EmailMonitor, EmailRecipient, Endpoint, Incident, StatusPage, User
-from app.services.email_content import public_failure_reason, service_name
+from app.services.email_content import service_name
 from app.services.routing import has_delivery
 
 
@@ -96,24 +96,12 @@ def queue_confirmation(db: Session, recipient: EmailRecipient, now: datetime,
 
 
 def queue_incident_emails(
-    db: Session, endpoint: Endpoint, incident: Incident, check: CheckResult, now: datetime,
+    db: Session, endpoint: Endpoint, incident: Incident, payload: dict, now: datetime,
     *, demo: bool = False,
 ) -> set[str]:
     if not demo and not email_ready():
         return set()
     base = settings.PUBLIC_BASE_URL.rstrip("/")
-    event = "endpoint.recovered" if check.is_success else "endpoint.down"
-    payload = {
-        "event": event, "checked_at": check.checked_at.isoformat(), "detected_at": incident.opened_at.isoformat(),
-    }
-    if check.is_success:
-        payload.update(
-            resolved_at=incident.recovered_at.isoformat(),
-            duration_seconds=round((incident.recovered_at - incident.first_failed_at).total_seconds()),
-        )
-    else:
-        payload["safe_reason"] = public_failure_reason(check.failure_kind, check.status_code)
-
     recipients = db.scalars(select(EmailRecipient).join(EmailMonitor).join(User).where(
         EmailMonitor.endpoint_id == endpoint.id,
         User.role.in_(("admin", "member", "viewer")),
@@ -125,7 +113,7 @@ def queue_incident_emails(
     for recipient in recipients:
         queue_incident_email(db, recipient, endpoint, incident, {
             **payload, "endpoint_name": service_name(endpoint.name),
-            "incident_url": f"{base}/?endpoint={endpoint.id}&incident={incident.id}" if not demo else "/demo#incident",
+            "incident_url": "/demo#incident" if demo else payload["incident_url"],
         }, now, addresses)
 
     page = published_page(db, endpoint) if not demo else None
@@ -134,7 +122,8 @@ def queue_incident_emails(
             EmailRecipient.public_endpoint_id == endpoint.id,
             EmailRecipient.verified_at.is_not(None), EmailRecipient.disabled_at.is_(None),
         ).order_by(EmailRecipient.id))
-        public_payload = {key: value for key, value in payload.items() if key != "safe_reason"}
+        public_fields = {"event", "checked_at", "detected_at", "resolved_at", "duration_seconds"}
+        public_payload = {key: value for key, value in payload.items() if key in public_fields}
         for recipient in public_recipients:
             queue_incident_email(db, recipient, endpoint, incident, {
                 **public_payload, "endpoint_name": service_name(endpoint.public_label), "public": True,

@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select, type_coerce
 from sqlalchemy.orm import Session
 
 from app.api.schemas import EndpointIncidentResponse
-from app.db.models import CheckResult, Endpoint, Incident, UTCDateTime
+from app.db.models import AlertAttempt, AlertDelivery, CheckResult, Endpoint, Incident, UTCDateTime
 
 
 def list_incidents(
@@ -94,12 +94,12 @@ def transition_incident(db: Session, endpoint: Endpoint, result: CheckResult) ->
 
 
 def incident_timeline(db: Session, incident: Incident) -> dict:
-    from app.db.models import AlertAttempt, AlertDelivery
-
     limit = 200
     failures = select(CheckResult).where(
         CheckResult.endpoint_id == incident.endpoint_id, CheckResult.is_success.is_(False),
-        CheckResult.checked_at >= incident.first_failed_at,
+        or_(CheckResult.failure_kind.is_(None), CheckResult.failure_kind != "unconfigured"),
+        # SQLite can store an older server-default timestamp without fractional seconds.
+        CheckResult.checked_at > incident.first_failed_at - timedelta(microseconds=1),
     )
     if incident.recovered_at:
         failures = failures.where(CheckResult.checked_at <= incident.recovered_at)

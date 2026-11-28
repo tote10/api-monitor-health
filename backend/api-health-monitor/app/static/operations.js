@@ -309,5 +309,11 @@ window.monitorOperations = (() => {
       : [node("li", "No active or upcoming maintenance windows.")]));
   }
 
+  setInterval(() => {
+    if (!document.hidden && get("incident-dialog").open && selectedIncident) {
+      refreshTimeline(incidentRequest);
+    }
+  }, 10000);
+
   return {refreshIncidents, renderActiveIncidents, renderRecentFailures, renderWorkspaceTrends, openMaintenance, openIncident};
 })();

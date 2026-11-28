@@ -37,7 +37,7 @@ window.monitorVisuals = (() => {
          <span class="sparkline-last">${known.at(-1)} ms</span>`
       : '<span class="sparkline-last">Unknown</span>';
     return `<div class="service-charts">
-      <div><span class="metric-label">Recent checks</span>
+      <div><span class="metric-label">Recent uptime</span>
         <div class="check-strip" role="img" aria-label="${counts}">${segments}</div>
       </div>
       <div><span class="metric-label">Latency trend</span><div class="sparkline-row">${trend}</div></div>
