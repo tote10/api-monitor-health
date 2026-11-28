@@ -4,12 +4,12 @@ A self-hosted HTTP monitoring service with a web dashboard. Register the URLs yo
 care about, choose how often to check them, and the background scheduler records
 every result so you can see status, uptime, response times, and failures.
 
-- **Dashboard** at `/` for adding, editing, pausing, checking, and deleting endpoints.
+- **Dashboard** at `/` with service cards, recent check bars, latency sparklines, and active incidents.
 - **Scheduler** checks active endpoints when their interval elapses.
 - **History** stores every check with status code, response time, and error detail.
 - **Incidents** group consecutive failed checks and show the first recorded
   failure, the recovery check, and the observed duration.
-- **Alerts** can send email or webhook notifications when a monitored endpoint goes down or recovers.
+- **Alerts** send outage and recovery notifications by email or webhook. Verified email recipients can choose monitors and opt into a weekly digest.
 - **Retention** prunes old results automatically (30 days by default).
 - **Authentication** with administrator, private member, and read-only viewer accounts.
 - **REST API** with interactive docs at `/docs` for signed-in administrators.
@@ -101,8 +101,8 @@ endpoints and see their results. Every workspace can monitor the same URL.
 Each link expires after seven days and can create one account.
 
 Existing command-line admin and viewer accounts keep access to the shared
-workspace. Outstanding invites now create private accounts. The global
-email and webhook destinations serve the shared workspace. On an existing
+workspace. Outstanding invites now create private accounts. The optional global
+email and webhook destinations serve the shared workspace. Verified recipients can subscribe to monitors in their own workspace. On an existing
 deployment, apply the latest database migration before inviting anyone.
 
 API clients can send JSON containing `username` and `password` to
@@ -128,34 +128,69 @@ Environment variables are read from the process environment and from `.env`.
 
 ## Outage and recovery alerts
 
-Apply the latest migration with `alembic upgrade head`, configure one or both
-destinations in the app folder’s `.env`, and restart the app. Docker Compose
-applies the migration on startup and reads the same settings when launched
-from the app folder.
+Apply the latest migration with `alembic upgrade head`, set the SMTP and base URL
+options in the app folder’s `.env`, and restart the app. Docker Compose applies
+migrations when the API starts.
 
 | Setting | Purpose |
 | --- | --- |
-| `ALERT_WEBHOOK_URL` | Public HTTP or HTTPS URL that accepts a JSON POST. Leave blank to disable webhooks. Use HTTPS for destinations that accept it. |
-| `SMTP_HOST` | SMTP server hostname. Leave blank to disable email. |
-| `SMTP_FROM`, `ALERT_EMAIL_TO` | Sender and recipient email addresses. Both are required when email is enabled. |
+| `PUBLIC_BASE_URL` | Browser-facing app URL such as `https://monitor.example.com`. Required for recipient verification, public subscriptions, and email incident links. |
+| `SMTP_HOST`, `SMTP_FROM` | SMTP host and sender address. Leave the host blank to disable email. |
 | `SMTP_PORT` | Defaults to `587`. Use the port supplied by your mail provider. |
-| `SMTP_SECURITY` | `starttls` by default. Use `tls` for implicit TLS, commonly on port 465, or `plain` for a local test receiver. |
-| `SMTP_USERNAME`, `SMTP_PASSWORD` | Optional SMTP credentials. Set both if your mail provider requires sign-in. |
+| `SMTP_SECURITY` | Defaults to `starttls`. Use `tls` for implicit TLS or `plain` for local capture. |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | Set both if the SMTP server requires sign-in. |
+| `ALERT_EMAIL_TO` | Optional legacy destination for all shared workspace monitors. |
+| `ALERT_WEBHOOK_URL` | Optional public HTTP(S) URL for JSON webhook delivery from shared workspace monitors. |
 
-A failed check queues a down alert when the previous check passed or the
-endpoint has no prior result. The next successful check queues a recovery.
-This works for manual and scheduled checks. Repeated checks with the same
-result leave the alert queue as it was. Editing an endpoint’s expected status
-can trigger an alert on its next check.
+Open **Account → Email notifications** to add an address. Open the verification
+email and confirm the address on the linked page. In settings, select the monitors
+that should send alerts, optionally enable the weekly digest, and click **Save
+preferences**. Use **Send test email** and **Refresh delivery status** to check
+SMTP acceptance. Digests cover the previous Monday through Sunday in UTC and
+report check-based uptime and incidents opened for each selected service.
+Services without checks are reported as unknown.
 
-The app saves queued deliveries alongside their check result and retries a
-failed delivery up to five total attempts with backoff. Delivery order is
-preserved per endpoint and channel. Webhooks do not follow redirects. Their
-JSON payload includes `event` (`endpoint.down` or `endpoint.recovered`),
-`endpoint_id`, `endpoint_name`, `check_id`, `checked_at`, `status_code`,
-and `delivery_id`. Receivers can use the delivery ID to recognize retries.
-The app logs failed attempts and keeps completed delivery records for 30 days
-while alert processing is enabled. Pending deliveries persist across restarts.
+Alert jobs are created when an incident opens or resolves at its configured
+check thresholds. The same incident event queues at most one email per address.
+Outage messages include the detection time and a standardized failure reason.
+Recovery messages include the resolution time and observed duration from the
+first failure. Both use the application's incident link. The incident timeline
+records failed checks, notification attempts, acknowledgement, and recovery.
+
+The queue retries temporary failures up to five attempts with backoff. A permanent
+SMTP rejection ends delivery immediately. An SMTP acceptance records that the
+server accepted the message for delivery. Inbox placement and later bounces are
+outside the SMTP submission response. If the connection drops before acceptance
+can be recorded, retries reuse the same Message-ID. The app retains completed
+delivery records for 30 days while alert processing is enabled.
+
+Webhooks do not follow redirects. Their JSON includes `event` (`endpoint.down`
+or `endpoint.recovered`), `endpoint_id`, `endpoint_name`, `check_id`,
+`checked_at`, `status_code`, and `delivery_id`. Receivers can use the delivery
+ID to recognize retries.
+
+### Capture emails in development
+
+Set these values in the app's `.env` file for Docker Compose.
+
+```dotenv
+PUBLIC_BASE_URL=http://127.0.0.1:8000
+SMTP_HOST=mailpit
+SMTP_PORT=1025
+SMTP_FROM=monitor@example.test
+SMTP_SECURITY=plain
+SMTP_USERNAME=
+SMTP_PASSWORD=
+ALERT_EMAIL_TO=
+```
+
+From `backend/api-health-monitor`, run `docker compose --profile mail-capture up
+--build --wait` and open the Mailpit inbox at <http://127.0.0.1:8025>. If you
+run the app on the host, start just Mailpit with
+`docker compose --profile mail-capture up -d mailpit` and use
+`SMTP_HOST=127.0.0.1`. Both Mailpit ports bind to loopback. Use a sample recipient
+such as `ops@example.test` and open verification, test, outage, and recovery
+messages from the inbox. [Mailpit Docker documentation](https://mailpit.axllent.org/docs/install/docker/)
 
 ## How monitoring works
 
@@ -303,6 +338,32 @@ docker compose exec -T db psql -U postgres -d api_health_monitor_restore -c 'SEL
 A backup contains application data and password hashes. Store it with the same
 access restrictions as the database. For release troubleshooting, run
 `docker compose ps` and `docker compose logs --tail=100 api`.
+
+## Portfolio demo
+
+From `backend/api-health-monitor`, start the app with the demo enabled. The demo
+can run on its own with an in-memory app database and the scheduler disabled.
+
+```bash
+DATABASE_URL=sqlite:// MONITORING_ENABLED=false DEMO_ENABLED=true \
+  .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Open <http://127.0.0.1:8000/demo>. Click **Simulate outage**, then click it again
+to record another failed check for the same incident. The inbox should still
+contain one message. Click **Restore service** to resolve the incident and
+capture the recovery email. Use the **Email** and **Format** selectors to read
+both versions. The service card and timeline update after each check.
+
+Each browser session gets its own temporary monitor, incident history, and
+capture inbox. The fixed demo target runs in process and the demo uses an
+in-memory mail capture with a fixed example address. Sessions expire after 30
+minutes or when the worker restarts. Run the demo with one app worker so requests
+reach the same session store. In Docker Compose, set `DEMO_ENABLED=true` in
+`.env` and restart the API.
+
+Run `pytest -q tests/test_email_experience.py` to verify the full alert flow
+against a loopback SMTP receiver and check demo isolation.
 
 ## Local outage and recovery demo
 
@@ -485,9 +546,13 @@ workspace. Use workspace alert routes for private workspaces.
 Give a monitor a **Public service name** and publish **Public status page**
 from the account menu. Share the generated page link. Published services show
 their current health, scheduled maintenance times and any explicitly written
-**Public incident update**. The public snapshot does not expose internal
-monitor names or URLs, private notes, raw results, or credentials. Unpublish
-the page to stop serving it.
+**Public incident update**. When SMTP and `PUBLIC_BASE_URL` are configured,
+visitors can subscribe to an individual published service. Subscribers confirm
+by email and can use the unsubscribe link in any update. These emails use the
+public service name, incident timing, and a link to the public service status.
+The public snapshot omits internal monitor names and URLs, private notes, raw
+results, and credentials. Unpublish the page to stop serving it and suspend
+subscription deliveries.
 
 A successful TLS handshake can expose the leaf certificate's expiration.
 Set `TLS_EXPIRY_WARNING_DAYS` (default 14, zero disables) to notify once for
